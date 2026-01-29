@@ -1,3 +1,12 @@
+import React, { useState } from "react";
+import {
+  UploadCloud,
+  Loader2,
+  CheckCircle,
+  AlertCircle,
+  Sparkles,
+} from "lucide-react";
+
 const ResumeAnalyzer = ({ onAnalyze, analysis, loading }) => {
   const [file, setFile] = useState(null);
 
@@ -73,11 +82,15 @@ const ResumeAnalyzer = ({ onAnalyze, analysis, loading }) => {
                 <AlertCircle size={18} /> Critical Fixes
               </h4>
               <ul className="space-y-3">
-                {analysis.weaknesses.map((item, i) => (
+                {analysis.weaknesses?.map((item, i) => (
                   <li key={i} className="text-sm text-slate-300 flex gap-2">
                     <span className="text-red-500">•</span> {item}
                   </li>
-                ))}
+                )) || (
+                  <li className="text-sm text-slate-500">
+                    No critical weaknesses found.
+                  </li>
+                )}
               </ul>
             </div>
             <div className="glass-panel p-6 rounded-2xl border-l-4 border-cyan-500">
@@ -85,11 +98,15 @@ const ResumeAnalyzer = ({ onAnalyze, analysis, loading }) => {
                 <Sparkles size={18} /> Strengths
               </h4>
               <ul className="space-y-3">
-                {analysis.strengths.map((item, i) => (
+                {analysis.strengths?.map((item, i) => (
                   <li key={i} className="text-sm text-slate-300 flex gap-2">
                     <span className="text-cyan-500">•</span> {item}
                   </li>
-                ))}
+                )) || (
+                  <li className="text-sm text-slate-500">
+                    No specific strengths listed.
+                  </li>
+                )}
               </ul>
             </div>
           </div>
@@ -105,3 +122,5 @@ const ResumeAnalyzer = ({ onAnalyze, analysis, loading }) => {
     </div>
   );
 };
+
+export default ResumeAnalyzer;

@@ -1,481 +1,486 @@
-import { useState, useRef, useEffect } from "react";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import { useNavigate } from "react-router-dom"; // Added for navigation
-import {
-  MessageSquare,
-  Map,
-  Send,
-  Sparkles,
-  User,
-  Bot,
-  AlertCircle,
-  FileText,
-  UploadCloud,
-  CheckCircle,
-  Loader2,
-} from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import { motion, AnimatePresence } from "framer-motion";
-import mammoth from "mammoth";
+import React from "react";
 import "./App.css";
 
-// 🔴 YOUR API KEY
-const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-
-// --- 1. LANDING PAGE (Exported) ---
-export const LandingPage = () => {
-  const navigate = useNavigate(); // Hook to change pages
-
+function App() {
   return (
-    <div className="min-h-screen text-slate-100 font-display bg-background-dark">
-      {/* Sticky Navigation */}
-      <nav className="fixed top-0 w-full z-50 border-b border-white/5 bg-background-dark/80 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+    <div className="min-h-screen">
+      {/* Top Navigation */}
+      <header className="fixed top-0 left-0 right-0 z-50 px-6 py-4">
+        <div className="max-w-7xl mx-auto glass-panel rounded-full px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="size-8 bg-primary rounded-lg flex items-center justify-center text-white">
-              <span className="material-symbols-outlined font-bold">
-                auto_awesome
+            <div className="text-primary">
+              <span className="material-symbols-outlined text-3xl">
+                polyline
               </span>
             </div>
-            <span className="text-xl font-black tracking-tight uppercase">
-              Career<span className="text-primary">AI</span>
-            </span>
+            <h2 className="text-white text-xl font-extrabold tracking-tight">
+              Pathify<span className="text-primary">AI</span>
+            </h2>
           </div>
-          <div className="hidden md:flex items-center gap-10">
-            <a className="text-sm font-medium hover:text-primary transition-colors cursor-pointer">
+          <nav className="hidden md:flex items-center gap-8">
+            <a
+              className="text-slate-400 hover:text-white text-sm font-medium transition-colors"
+              href="#"
+            >
               Platform
             </a>
-            <a className="text-sm font-medium hover:text-primary transition-colors cursor-pointer">
-              Solutions
+            <a
+              className="text-slate-400 hover:text-white text-sm font-medium transition-colors"
+              href="#"
+            >
+              Intelligence
             </a>
-            <a className="text-sm font-medium hover:text-primary transition-colors cursor-pointer">
-              Resources
+            <a
+              className="text-slate-400 hover:text-white text-sm font-medium transition-colors"
+              href="#"
+            >
+              Case Studies
             </a>
-          </div>
-          <div className="flex items-center gap-4">
-            <button className="text-sm font-bold px-5 py-2 hover:text-primary transition-colors">
-              Log In
-            </button>
-            <button
-              onClick={() => navigate("/LenAi")} // CHANGED: Navigates to /LenAi route
-              className="bg-primary text-white text-sm font-bold px-6 py-2.5 rounded-lg shadow-[0_0_20px_rgba(19,91,236,0.3)] hover:scale-105 transition-all"
+            <a
+              className="text-slate-400 hover:text-white text-sm font-medium transition-colors"
+              href="#"
             >
-              Get Started
+              Pricing
+            </a>
+          </nav>
+          <div className="flex items-center gap-3">
+            <button className="px-4 py-2 text-white text-sm font-bold hover:text-primary transition-colors">
+              Login
+            </button>
+            <button className="bg-primary hover:bg-primary/90 text-white text-sm font-bold py-2 px-5 rounded-full transition-all glow-button">
+              Join Waitlist
             </button>
           </div>
         </div>
-      </nav>
+      </header>
 
-      {/* Hero Section */}
-      <section className="relative pt-40 pb-20 px-6 overflow-hidden min-h-[90vh] flex items-center">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full hero-glow pointer-events-none"></div>
-        <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-16 items-center relative z-10">
-          <div className="space-y-8">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-bold uppercase tracking-widest">
-              <span className="size-2 bg-primary rounded-full animate-pulse"></span>
-              Next-Gen Career Intelligence
-            </div>
-            <h1 className="text-6xl md:text-7xl font-black leading-[1.1] tracking-tight text-white">
-              Architect Your Future with{" "}
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-cyan-400">
-                Precision AI
-              </span>
-            </h1>
-            <p className="text-lg text-slate-400 max-w-xl leading-relaxed">
-              From student to specialist—data-driven career paths tailored to
-              your unique potential. Leverage world-class AI to navigate your
-              professional journey.
-            </p>
-            <div className="flex flex-wrap gap-4">
-              <button
-                onClick={() => navigate("/LenAi")} // CHANGED: Navigates to /LenAi
-                className="px-8 py-4 bg-primary text-white font-bold rounded-xl shadow-lg hover:shadow-primary/40 transition-all flex items-center gap-2"
-              >
-                Start Free Analysis
-                <span className="material-symbols-outlined text-sm">
-                  arrow_forward
-                </span>
-              </button>
-              <button className="px-8 py-4 glass-panel text-white font-bold rounded-xl hover:bg-white/10 transition-all">
-                View Demo
-              </button>
-            </div>
-            {/* Stats */}
-            <div className="flex items-center gap-6 pt-4">
-              <div className="flex -space-x-3">
-                <div className="w-10 h-10 rounded-full border-2 border-background-dark bg-slate-700 flex items-center justify-center text-xs">
-                  U1
-                </div>
-                <div className="w-10 h-10 rounded-full border-2 border-background-dark bg-slate-600 flex items-center justify-center text-xs">
-                  U2
-                </div>
-                <div className="w-10 h-10 rounded-full border-2 border-background-dark bg-slate-500 flex items-center justify-center text-xs">
-                  U3
-                </div>
-              </div>
-              <p className="text-sm text-slate-500 font-medium">
-                Trusted by 12,000+ early professionals
-              </p>
-            </div>
-          </div>
-          {/* Visual */}
-          <div className="relative hidden lg:block">
-            <div className="absolute inset-0 bg-primary/20 blur-[100px] rounded-full"></div>
-            <div className="relative glass-panel p-12 rounded-[3rem] border-white/10 shadow-2xl flex items-center justify-center">
-              <div className="size-80 rounded-full bg-gradient-to-tr from-primary to-cyan-400 flex items-center justify-center ai-sphere-glow animate-pulse">
-                <div className="size-64 rounded-full bg-background-dark flex items-center justify-center overflow-hidden relative">
-                  <div className="absolute inset-0 opacity-40 bg-[radial-gradient(circle_at_50%_50%,#135bec,transparent_70%)]"></div>
-                  <span className="material-symbols-outlined text-8xl text-white opacity-90">
-                    psychology
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+      <main className="relative pt-32 overflow-hidden">
+        {/* Radial Glow Accents */}
+        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-primary/10 rounded-full blur-[120px] pointer-events-none"></div>
+        <div className="absolute top-[20%] right-[-10%] w-[40%] h-[40%] bg-accent-violet/10 rounded-full blur-[120px] pointer-events-none"></div>
 
-      {/* Feature Section */}
-      <section className="py-24 px-6 relative">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-5xl font-bold text-white mb-6">
-              The Career Maze vs. The AI Advantage
-            </h2>
-            <div className="h-1 w-20 bg-primary mx-auto rounded-full"></div>
+        {/* Hero Section */}
+        <section className="relative z-10 px-6 max-w-7xl mx-auto text-center">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-primary/30 bg-primary/5 mb-8">
+            <span className="flex h-2 w-2 rounded-full bg-primary animate-pulse"></span>
+            <span className="text-primary text-[10px] font-bold uppercase tracking-widest">
+              v2.0 Engineering Engine Active
+            </span>
           </div>
-          <div className="grid md:grid-cols-2 gap-8">
-            <div className="glass-panel p-10 rounded-3xl border-red-500/10 hover:border-red-500/30 transition-all group">
-              <h3 className="text-2xl font-bold text-white mb-4">
-                The Problem: Choice Paralysis
-              </h3>
-              <p className="text-slate-400 leading-relaxed mb-6">
-                Outdated counseling and generic advice leave students
-                overwhelmed.
-              </p>
-            </div>
-            <div className="glass-panel p-10 rounded-3xl border-primary/20 hover:border-primary/50 transition-all group relative overflow-hidden">
-              <h3 className="text-2xl font-bold text-white mb-4">
-                The Solution: AI Clarity
-              </h3>
-              <p className="text-slate-400 leading-relaxed mb-6">
-                We transform raw data into a bespoke roadmap.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-};
-
-// --- RESUME COMPONENT (Internal) ---
-const ResumeAnalyzer = ({ onAnalyze, analysis, loading }) => {
-  const [file, setFile] = useState(null);
-  const handleFileChange = (e) => {
-    if (e.target.files[0]) setFile(e.target.files[0]);
-  };
-
-  return (
-    <div className="flex-1 p-8 overflow-y-auto max-w-4xl mx-auto w-full">
-      <h2 className="text-3xl font-bold mb-8 text-transparent bg-clip-text bg-gradient-to-r from-primary to-cyan-400">
-        AI Resume Analyzer
-      </h2>
-      {!analysis ? (
-        <div className="bg-white/5 backdrop-blur-xl p-10 rounded-3xl border-dashed border-2 border-white/20 flex flex-col items-center justify-center text-center gap-6">
-          <UploadCloud size={40} className="text-primary" />
-          <h3 className="text-xl font-bold text-white">Upload your Resume</h3>
-          <input
-            type="file"
-            accept=".docx,.txt"
-            onChange={handleFileChange}
-            className="hidden"
-            id="resume-upload"
-          />
-          <label
-            htmlFor="resume-upload"
-            className="px-8 py-3 bg-primary text-white font-bold rounded-xl cursor-pointer"
-          >
-            {file ? file.name : "Select File"}
-          </label>
-          {file && (
-            <button
-              onClick={() => onAnalyze(file)}
-              disabled={loading}
-              className="mt-4 flex items-center gap-2 text-cyan-400"
-            >
-              {loading ? "Analyzing..." : "Start Analysis"}
+          <h1 className="text-white text-5xl md:text-7xl lg:text-8xl font-black leading-[1.1] tracking-[-0.04em] mb-6 max-w-5xl mx-auto">
+            The Engineering Approach to{" "}
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent-violet neon-text-glow">
+              Career Success
+            </span>
+          </h1>
+          <p className="text-slate-400 text-lg md:text-xl font-normal leading-relaxed max-w-2xl mx-auto mb-12">
+            Leverage world-class AI to map your trajectory from student to
+            industry leader. Build your professional future with surgical
+            precision.
+          </p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-20">
+            <button className="w-full sm:w-auto min-w-[200px] h-14 bg-primary text-white font-bold text-lg rounded-xl hover:scale-105 transition-transform glow-button flex items-center justify-center gap-2">
+              Build Your Roadmap
+              <span className="material-symbols-outlined">arrow_forward</span>
             </button>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-6">
-          <div className="bg-white/5 p-8 rounded-2xl border-l-4 border-green-500">
-            <h3 className="text-xl font-bold text-white mb-2">
-              Score: {analysis.score}/100
-            </h3>
-            <p className="text-slate-400">{analysis.summary}</p>
+            <button className="w-full sm:w-auto min-w-[200px] h-14 glass-panel text-white font-bold text-lg rounded-xl hover:bg-white/5 transition-colors">
+              View Demo
+            </button>
           </div>
-          <button
-            onClick={() => onAnalyze(null)}
-            className="w-full py-4 rounded-xl bg-white/5 text-slate-300"
-          >
-            Analyze Another
-          </button>
-        </div>
-      )}
-    </div>
-  );
-};
 
-// --- 2. MAIN APP COMPONENT (Renamed & Exported) ---
-export const LenAi = () => {
-  // CHANGED: Renamed App to LenAi and Exported
-  const [activeTab, setActiveTab] = useState("chat");
-  const [messages, setMessages] = useState([
-    {
-      role: "model",
-      text: "Hi! I'm your AI Career Coach. Tell me your goals!",
-    },
-  ]);
-  const [input, setInput] = useState("");
-  const [roadmap, setRoadmap] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [resumeResult, setResumeResult] = useState(null);
-  const messagesEndRef = useRef(null);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
-
-  const handleSend = async () => {
-    if (!input.trim()) return;
-    setError(null);
-    const userMsg = { role: "user", text: input };
-    setMessages((prev) => [...prev, userMsg]);
-    setInput("");
-    setLoading(true);
-
-    try {
-      if (!API_KEY) throw new Error("API Key not found.");
-      const genAI = new GoogleGenerativeAI(API_KEY);
-      const model = genAI.getGenerativeModel({
-        model: "gemini-3-flash-preview",
-      });
-
-      let prompt = userMsg.text;
-      const isRoadmapRequest =
-        activeTab === "roadmap" || input.toLowerCase().includes("roadmap");
-
-      if (isRoadmapRequest) {
-        prompt = `Create a career roadmap for: "${input}". RETURN ONLY RAW JSON. { "title": "Role Title", "steps": [{ "phase": "Phase Name", "details": "Topics" }] }`;
-      }
-
-      const result = await model.generateContent(prompt);
-      const text = result.response.text();
-
-      if (isRoadmapRequest) {
-        try {
-          const cleanText = text.replace(/```json|```/g, "").trim();
-          const json = JSON.parse(cleanText);
-          setRoadmap(json);
-          setMessages((prev) => [
-            ...prev,
-            { role: "model", text: `Roadmap generated for **${json.title}**!` },
-          ]);
-          setActiveTab("roadmap");
-        } catch (e) {
-          setMessages((prev) => [...prev, { role: "model", text }]);
-        }
-      } else {
-        setMessages((prev) => [...prev, { role: "model", text }]);
-      }
-    } catch (err) {
-      console.error(err);
-      setError("Failed to connect to AI.");
-    }
-    setLoading(false);
-  };
-
-  const handleResumeAnalysis = async (file) => {
-    if (!file) {
-      setResumeResult(null);
-      return;
-    }
-    setLoading(true);
-    try {
-      let textContent = "";
-      if (file.name.endsWith(".docx")) {
-        const arrayBuffer = await file.arrayBuffer();
-        const result = await mammoth.extractRawText({ arrayBuffer });
-        textContent = result.value;
-      } else if (file.name.endsWith(".txt")) {
-        textContent = await file.text();
-      } else {
-        alert("Upload .docx only");
-        setLoading(false);
-        return;
-      }
-
-      const genAI = new GoogleGenerativeAI(API_KEY);
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      const prompt = `Act as a Recruiter. Analyze this resume: "${textContent.slice(0, 5000)}". Output JSON: { "score": 85, "summary": "...", "strengths": [], "weaknesses": [] }`;
-
-      const result = await model.generateContent(prompt);
-      const cleanJson = result.response
-        .text()
-        .replace(/```json|```/g, "")
-        .trim();
-      setResumeResult(JSON.parse(cleanJson));
-    } catch (err) {
-      setError("Analysis failed.");
-    }
-    setLoading(false);
-  };
-
-  return (
-    <div className="flex h-screen bg-background-dark text-slate-100 overflow-hidden font-display">
-      <div className="absolute top-[-100px] left-[-100px] w-[600px] h-[600px] bg-primary blur-[150px] opacity-15 rounded-full pointer-events-none z-0"></div>
-
-      <aside className="w-[280px] bg-white/5 backdrop-blur-2xl border-r border-white/10 flex flex-col p-8 z-10">
-        <div className="flex items-center gap-3 mb-10">
-          <div className="p-2 bg-primary/20 rounded-lg border border-primary/30">
-            <Sparkles className="text-primary" size={24} />
-          </div>
-          <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">
-            CareerAI
-          </h2>
-        </div>
-        <nav className="flex flex-col gap-2">
-          <button
-            onClick={() => setActiveTab("chat")}
-            className={`flex items-center gap-3 w-full p-3.5 rounded-xl transition-all ${activeTab === "chat" ? "bg-primary/10 text-primary border-l-4 border-primary" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}
-          >
-            <MessageSquare size={20} /> Chat Guidance
-          </button>
-          <button
-            onClick={() => setActiveTab("roadmap")}
-            className={`flex items-center gap-3 w-full p-3.5 rounded-xl transition-all ${activeTab === "roadmap" ? "bg-primary/10 text-primary border-l-4 border-primary" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}
-          >
-            <Map size={20} /> Career Roadmap
-          </button>
-          <button
-            onClick={() => setActiveTab("resume")}
-            className={`flex items-center gap-3 w-full p-3.5 rounded-xl transition-all ${activeTab === "resume" ? "bg-primary/10 text-primary border-l-4 border-primary" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}
-          >
-            <FileText size={20} /> Resume Analyzer
-          </button>
-        </nav>
-      </aside>
-
-      <main className="flex-1 flex flex-col relative z-10 overflow-hidden">
-        <AnimatePresence mode="wait">
-          {activeTab === "chat" ? (
-            <motion.div
-              key="chat"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 flex flex-col max-w-5xl mx-auto w-full h-full"
-            >
-              {error && (
-                <div className="m-4 p-3 bg-red-500/10 text-red-200 rounded-lg flex gap-2">
-                  <AlertCircle size={18} /> {error}
-                </div>
-              )}
-              <div className="flex-1 overflow-y-auto p-8 flex flex-col gap-6 scrollbar-thin">
-                {messages.map((msg, idx) => (
-                  <div
-                    key={idx}
-                    className={`flex gap-4 max-w-[85%] ${msg.role === "user" ? "ml-auto flex-row-reverse" : ""}`}
-                  >
-                    <div
-                      className={`p-5 rounded-2xl text-base leading-relaxed border ${msg.role === "user" ? "bg-primary text-white" : "bg-white/5"}`}
-                    >
-                      <ReactMarkdown>{msg.text}</ReactMarkdown>
+          {/* Metallic UI Mockup */}
+          <div className="relative max-w-5xl mx-auto mb-32">
+            <div className="absolute -inset-1 bg-gradient-to-r from-primary/50 to-accent-violet/50 rounded-2xl blur opacity-25"></div>
+            <div className="relative aspect-video rounded-2xl glass-panel border border-white/10 p-4 shadow-2xl overflow-hidden">
+              <div className="w-full h-full bg-[#0a0a0a] rounded-xl border border-white/5 p-6 flex flex-col gap-6 overflow-hidden relative z-10">
+                {/* Mockup Header */}
+                <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                  <div className="flex items-center gap-4">
+                    <div className="size-8 rounded-lg bg-primary/20 flex items-center justify-center">
+                      <span className="material-symbols-outlined text-primary text-sm">
+                        architecture
+                      </span>
+                    </div>
+                    <div className="text-left">
+                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest leading-none">
+                        Career Path
+                      </p>
+                      <p className="text-white font-bold text-sm">
+                        Senior AI Research Engineer @ Google DeepMind
+                      </p>
                     </div>
                   </div>
-                ))}
-                {loading && (
-                  <div className="p-5 rounded-2xl bg-white/5 w-20 flex justify-center">
-                    <Loader2 className="animate-spin text-primary" />
+                  <div className="flex gap-2">
+                    <div className="h-2 w-12 bg-white/5 rounded-full"></div>
+                    <div className="h-2 w-8 bg-white/5 rounded-full"></div>
                   </div>
-                )}
-                <div ref={messagesEndRef} />
-              </div>
-              <div className="p-8">
-                <div className="bg-white/5 border border-white/10 rounded-2xl p-2 flex items-center">
-                  <input
-                    className="flex-1 bg-transparent border-none text-white px-5 py-3 outline-none"
-                    type="text"
-                    placeholder="Ask about your career..."
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleSend()}
-                    disabled={loading}
-                  />
-                  <button
-                    className="size-12 bg-primary text-white rounded-xl flex items-center justify-center"
-                    onClick={handleSend}
-                    disabled={loading}
-                  >
-                    <Send size={20} />
-                  </button>
                 </div>
-              </div>
-            </motion.div>
-          ) : activeTab === "roadmap" ? (
-            <motion.div
-              key="roadmap"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 p-8 overflow-y-auto"
-            >
-              {!roadmap ? (
-                <div className="flex flex-col items-center justify-center h-full text-slate-500">
-                  <Map size={64} className="opacity-50 mb-4" />
-                  <p>Ask for a roadmap in Chat!</p>
-                </div>
-              ) : (
-                <div className="max-w-3xl mx-auto">
-                  <h1 className="text-3xl font-bold text-center mb-12 text-primary">
-                    {roadmap.title}
-                  </h1>
-                  <div className="space-y-12 pl-8 border-l-2 border-white/10">
-                    {roadmap.steps?.map((step, i) => (
-                      <div key={i} className="relative">
-                        <div className="absolute -left-[41px] top-0 size-5 rounded-full bg-background-dark border-2 border-primary"></div>
-                        <h4 className="text-xl font-bold text-primary mb-2">
-                          {step.phase}
-                        </h4>
-                        <p className="text-slate-400 bg-white/5 p-4 rounded-xl">
-                          {step.details}
-                        </p>
+                {/* Mockup Roadmap Visualization */}
+                <div className="flex-1 flex items-center justify-center relative">
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-full h-px roadmap-line opacity-20"></div>
+                  </div>
+                  <div className="flex justify-between w-full relative z-10 px-10">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="size-12 rounded-full bg-primary/20 border-2 border-primary flex items-center justify-center shadow-[0_0_20px_rgba(19,91,236,0.5)]">
+                        <span className="material-symbols-outlined text-white">
+                          school
+                        </span>
                       </div>
-                    ))}
+                      <span className="text-[10px] text-primary font-bold">
+                        CURRENT
+                      </span>
+                    </div>
+                    <div className="flex flex-col items-center gap-3 mt-12">
+                      <div className="size-10 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center">
+                        <span className="material-symbols-outlined text-slate-400">
+                          code
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-500 font-bold">
+                        STEP 01
+                      </span>
+                    </div>
+                    <div className="flex flex-col items-center gap-3 -mt-8">
+                      <div className="size-14 rounded-full bg-accent-violet/20 border-2 border-accent-violet flex items-center justify-center shadow-[0_0_25px_rgba(139,92,246,0.4)]">
+                        <span className="material-symbols-outlined text-white">
+                          rocket_launch
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-accent-violet font-bold">
+                        ACCELERATOR
+                      </span>
+                    </div>
+                    <div className="flex flex-col items-center gap-3 mt-4 opacity-50">
+                      <div className="size-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center">
+                        <span className="material-symbols-outlined text-slate-500">
+                          work
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-600 font-bold">
+                        GOAL
+                      </span>
+                    </div>
                   </div>
                 </div>
-              )}
-            </motion.div>
-          ) : (
-            <motion.div
-              key="resume"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 flex"
-            >
-              <ResumeAnalyzer
-                onAnalyze={handleResumeAnalysis}
-                analysis={resumeResult}
-                loading={loading}
+              </div>
+              <img
+                alt="mockup data visualization"
+                className="absolute inset-0 w-full h-full object-cover mix-blend-overlay opacity-10 pointer-events-none"
+                data-alt="Dark abstract neural network mesh pattern background"
+                src="https://lh3.googleusercontent.com/aida-public/AB6AXuDsf9yn410vdfcaq7KwNI3tliBO1c58_z61E7j42wcVtT-ooJD-dBOn5HQ3_bFXNxlo6vVG1XH8klf6IJ1aBCYgr4f3XIwiUIxFjJB7Bh11Cgh1HhlNubg8e5-_cb6gdJF-3XkwmW9ly7GIzCvLCintafaypLT6wZRV1IF46EFoHGrDvhMj0hROv7GYsFzLKIUH1Rc9U7y7illWM_L3niNTpoYqyE0LWjXcgMLWJAbXXr_TYbGsxvhMypBKv7AeY5aibs88Bz2RAho"
               />
-            </motion.div>
-          )}
-        </AnimatePresence>
+            </div>
+          </div>
+        </section>
+
+        {/* Social Proof */}
+        <section className="max-w-7xl mx-auto px-6 mb-32">
+          <p className="text-center text-slate-500 text-sm font-bold uppercase tracking-[0.3em] mb-10">
+            Trusted by students at elite institutions
+          </p>
+          <div className="flex flex-wrap justify-center items-center gap-12 md:gap-24 opacity-40 grayscale">
+            <span className="text-2xl font-black text-white">MIT</span>
+            <span className="text-2xl font-black text-white">STANFORD</span>
+            <span className="text-2xl font-black text-white">OXFORD</span>
+            <span className="text-2xl font-black text-white">CALTECH</span>
+            <span className="text-2xl font-black text-white">HARVARD</span>
+          </div>
+        </section>
+
+        {/* Bento Box Features Section */}
+        <section className="max-w-7xl mx-auto px-6 mb-32">
+          <div className="mb-16">
+            <h2 className="text-white text-3xl md:text-5xl font-black tracking-tight mb-4">
+              Neural Skill Mapping & <br />
+              Market Intelligence
+            </h2>
+            <p className="text-slate-400 text-lg max-w-2xl">
+              Our bento-box architecture delivers modular AI insights to
+              accelerate your professional growth via real-time data ingestion.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 md:grid-rows-2 gap-4 h-auto md:h-[600px]">
+            {/* Large Bento Card */}
+            <div className="md:col-span-2 md:row-span-2 glass-panel rounded-2xl p-8 bento-hover flex flex-col justify-between group">
+              <div className="relative w-full h-64 bg-slate-900/50 rounded-xl overflow-hidden mb-6 border border-white/5">
+                <div className="absolute inset-0 bg-gradient-to-tr from-primary/20 to-transparent"></div>
+                <img
+                  alt="cybersecurity and data concept"
+                  className="w-full h-full object-cover opacity-30 group-hover:scale-105 transition-transform duration-700"
+                  data-alt="Complex glowing circuit board data stream visualization"
+                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuBKjRXaTCjEdTC3WhwJqykJthXw1540WATGNx2OeAIl-tXETVF82OZq4IKHiqSCD7MLrwAM67BKtst_PIFWt7D14HdrVG3WcLCyrhkWhn1JYzIOOvGvLOgNzt3EgJffXUOy5_zwxyWqCUtVMLaKBRQNqAVs1ib7i8z9Qma1SnT-PrDWmNR1Zzg1r3GoA3Hp4PWZjyBUSRTLJEaaOP12io5JZcbBoIJJM1aynz1fRdrYB_TjwmqPeo6B8w82GlnoHVyMt2qRkAEufc0"
+                />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="flex gap-4">
+                    <div className="size-16 rounded-xl glass-panel flex items-center justify-center border-primary/40 text-primary">
+                      <span className="material-symbols-outlined text-4xl">
+                        psychology
+                      </span>
+                    </div>
+                    <div className="size-16 rounded-xl glass-panel flex items-center justify-center border-accent-violet/40 text-accent-violet translate-y-4">
+                      <span className="material-symbols-outlined text-4xl">
+                        database
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <h3 className="text-white text-2xl font-bold mb-3">
+                  Neural Skill Mapping
+                </h3>
+                <p className="text-slate-400 leading-relaxed">
+                  Identify every micro-gap between your current profile and your
+                  dream role with surgical precision. Our AI analyzes 10M+
+                  resumes and job descriptions daily.
+                </p>
+              </div>
+            </div>
+            {/* Small Bento Card 1 */}
+            <div className="glass-panel rounded-2xl p-8 bento-hover flex flex-col justify-between border-primary/20 group">
+              <div className="size-12 rounded-xl bg-primary/10 flex items-center justify-center mb-6 group-hover:bg-primary/20 transition-colors">
+                <span className="material-symbols-outlined text-primary">
+                  query_stats
+                </span>
+              </div>
+              <div>
+                <h3 className="text-white text-xl font-bold mb-2">
+                  Real-time Pulse
+                </h3>
+                <p className="text-slate-400 text-sm">
+                  Stay ahead of market shifts with AI that tracks hiring trends
+                  across 500+ global industries.
+                </p>
+              </div>
+            </div>
+            {/* Small Bento Card 2 */}
+            <div className="glass-panel rounded-2xl p-8 bento-hover flex flex-col justify-between border-accent-violet/20 group">
+              <div className="size-12 rounded-xl bg-accent-violet/10 flex items-center justify-center mb-6 group-hover:bg-accent-violet/20 transition-colors">
+                <span className="material-symbols-outlined text-accent-violet">
+                  smart_toy
+                </span>
+              </div>
+              <div>
+                <h3 className="text-white text-xl font-bold mb-2">
+                  Automated Mentor
+                </h3>
+                <p className="text-slate-400 text-sm">
+                  Get instant, high-fidelity feedback on your portfolio and
+                  interview performance from synthetic experts.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Testimonials */}
+        <section className="max-w-7xl mx-auto px-6 mb-32">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="glass-panel rounded-2xl p-8 border-white/5 backdrop-blur-3xl">
+              <div className="flex text-primary mb-4">
+                {[...Array(5)].map((_, i) => (
+                  <span key={i} className="material-symbols-outlined fill-1">
+                    star
+                  </span>
+                ))}
+              </div>
+              <p className="text-white font-medium mb-6 italic">
+                "Pathify identified the exact certifications I needed to land my
+                role at NVIDIA. It felt like having a career engineer by my
+                side."
+              </p>
+              <div className="flex items-center gap-3">
+                <div
+                  className="size-10 rounded-full bg-slate-700"
+                  data-alt="Portrait of a professional young man"
+                  style={{
+                    backgroundImage:
+                      "url('https://lh3.googleusercontent.com/aida-public/AB6AXuCkPbc0OXrdYauHUDR6FxWz6LjFPUtcNrUBRs88tms4BMGuxNuyrljm5dxADgq8g327g1IlsNgvLVqebYw9WyAupqK63nrh-qw_4_ZOykdFP7mS3b8MES7w5KyVBsydAB8hdGLHXtax2YOg5fplIpYvPoXUoRab-ZmttTUFmJNW87l55ZckYIAFL1EDShGEFmEFKq-uKPjA2kVj4VazU--P36DvawnFbRl0U6AjzL3WOlhvZ_aTbDHufJsOzUX-__-izIBCYPwZaZs')",
+                    backgroundSize: "cover",
+                  }}
+                ></div>
+                <div>
+                  <p className="text-white text-sm font-bold">Alex Chen</p>
+                  <p className="text-slate-500 text-xs">ML Engineer @ NVIDIA</p>
+                </div>
+              </div>
+            </div>
+            <div className="glass-panel rounded-2xl p-8 border-white/5 backdrop-blur-3xl">
+              <div className="flex text-primary mb-4">
+                {[...Array(5)].map((_, i) => (
+                  <span key={i} className="material-symbols-outlined fill-1">
+                    star
+                  </span>
+                ))}
+              </div>
+              <p className="text-white font-medium mb-6 italic">
+                "The precision of the roadmap is unmatched. It didn't just tell
+                me what to learn, but when and why it mattered for the current
+                market."
+              </p>
+              <div className="flex items-center gap-3">
+                <div
+                  className="size-10 rounded-full bg-slate-700"
+                  data-alt="Portrait of a smiling professional woman"
+                  style={{
+                    backgroundImage:
+                      "url('https://lh3.googleusercontent.com/aida-public/AB6AXuBrtm2NArR8vt4g075N8XYq9JesY8gxQS7Dx2W5Hk8bJ8kOBfMMKYJJH78BDfR1HZ6lexNyE7ISuT-O9HH4fxDwTbbYxkQvizk5njcP71_b39QtpJJqslAvDV5AdgqOVXBNsydZdP4B2gGOfcngCGCEsickw035TCGYXJcrCjoNOktazePldsResYOzAul7VNI6Md5QmlL0AkUNnFnSFAU_FkJwfdLNHlKN9CV3OEN7GPYhlY3Aawj-JcHy9-PXwyrljuXHY5-P5dk')",
+                    backgroundSize: "cover",
+                  }}
+                ></div>
+                <div>
+                  <p className="text-white text-sm font-bold">Sarah Jenkins</p>
+                  <p className="text-slate-500 text-xs">Product @ Stripe</p>
+                </div>
+              </div>
+            </div>
+            <div className="glass-panel rounded-2xl p-8 border-white/5 backdrop-blur-3xl">
+              <div className="flex text-primary mb-4">
+                {[...Array(5)].map((_, i) => (
+                  <span key={i} className="material-symbols-outlined fill-1">
+                    star
+                  </span>
+                ))}
+              </div>
+              <p className="text-white font-medium mb-6 italic">
+                "A serious tool for serious candidates. The interview
+                simulations are hauntingly accurate. Worth every penny."
+              </p>
+              <div className="flex items-center gap-3">
+                <div
+                  className="size-10 rounded-full bg-slate-700"
+                  data-alt="Portrait of a professional male in a suit"
+                  style={{
+                    backgroundImage:
+                      "url('https://lh3.googleusercontent.com/aida-public/AB6AXuCSVP4uHYaI0ATQGj9PxnmyP20_gulpXDZMHfWY7K8Hpq5rNHcYZH15y6d5o_UhGDIgLLmIi1rDcjUWFCqsMtjb-56RK6qWMlW7yfutwNrgiIRhXRfCCbr_W9tyGEQ3rYam6Jjnf0f27p6NHzyzmbxQPBS3rUB8euWeffZTJ55xGIMyDCZvoFvdw7YFHvIWDJzaHkbxGVKMp0xs1ftq71RjPxryKzY5CAfw31XwQztYOvPmAqpQYNOQeuinJhsihXTS-7vNEh_UbmQ')",
+                    backgroundSize: "cover",
+                  }}
+                ></div>
+                <div>
+                  <p className="text-white text-sm font-bold">Marcus Thorne</p>
+                  <p className="text-slate-500 text-xs">
+                    Quant Analyst @ Citadel
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Final CTA Section */}
+        <section className="max-w-5xl mx-auto px-6 mb-32">
+          <div className="relative rounded-3xl overflow-hidden glass-panel border border-primary/20 p-12 text-center group">
+            <div className="absolute inset-0 bg-primary/5 opacity-50 group-hover:opacity-100 transition-opacity"></div>
+            {/* Breathing glow effect */}
+            <div className="absolute inset-0 bg-primary/20 blur-[100px] opacity-20 animate-pulse"></div>
+            <h2 className="relative z-10 text-white text-4xl md:text-5xl font-black mb-6 tracking-tight">
+              Ready to Engineer Your Exit?
+            </h2>
+            <p className="relative z-10 text-slate-400 text-lg mb-10 max-w-xl mx-auto">
+              Join 15,000+ top-tier students and professionals building their
+              futures on Pathify.
+            </p>
+            <div className="relative z-10">
+              <button className="w-full max-w-md h-16 bg-primary text-white text-xl font-black rounded-2xl glow-button hover:scale-[1.02] transition-all flex items-center justify-center gap-3 mx-auto">
+                START YOUR ROADMAP TODAY
+                <span className="material-symbols-outlined">rocket</span>
+              </button>
+            </div>
+          </div>
+        </section>
       </main>
+
+      {/* Footer */}
+      <footer className="border-t border-white/5 py-16 px-6">
+        <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-12">
+          <div className="col-span-1 md:col-span-1">
+            <div className="flex items-center gap-2 mb-6">
+              <span className="material-symbols-outlined text-primary text-3xl">
+                polyline
+              </span>
+              <h2 className="text-white text-xl font-extrabold tracking-tight">
+                Pathify<span className="text-primary">AI</span>
+              </h2>
+            </div>
+            <p className="text-slate-500 text-sm leading-relaxed">
+              The professional development operating system for the AI era.
+            </p>
+          </div>
+          <div>
+            <h4 className="text-white font-bold mb-6">Platform</h4>
+            <ul className="space-y-4 text-slate-500 text-sm">
+              <li>
+                <a className="hover:text-primary transition-colors" href="#">
+                  Skill Mapping
+                </a>
+              </li>
+              <li>
+                <a className="hover:text-primary transition-colors" href="#">
+                  Market Pulse
+                </a>
+              </li>
+              <li>
+                <a className="hover:text-primary transition-colors" href="#">
+                  Interview Lab
+                </a>
+              </li>
+            </ul>
+          </div>
+          <div>
+            <h4 className="text-white font-bold mb-6">Company</h4>
+            <ul className="space-y-4 text-slate-500 text-sm">
+              <li>
+                <a className="hover:text-primary transition-colors" href="#">
+                  About
+                </a>
+              </li>
+              <li>
+                <a className="hover:text-primary transition-colors" href="#">
+                  Engineering Blog
+                </a>
+              </li>
+              <li>
+                <a className="hover:text-primary transition-colors" href="#">
+                  Careers
+                </a>
+              </li>
+            </ul>
+          </div>
+          <div>
+            <h4 className="text-white font-bold mb-6">Connect</h4>
+            <div className="flex gap-4">
+              <a
+                className="size-10 rounded-lg glass-panel flex items-center justify-center hover:text-primary transition-colors"
+                href="#"
+              >
+                <span className="material-symbols-outlined">share</span>
+              </a>
+              <a
+                className="size-10 rounded-lg glass-panel flex items-center justify-center hover:text-primary transition-colors"
+                href="#"
+              >
+                <span className="material-symbols-outlined">mail</span>
+              </a>
+            </div>
+          </div>
+        </div>
+        <div className="max-w-7xl mx-auto mt-16 pt-8 border-t border-white/5 flex flex-col md:row items-center justify-between gap-4">
+          <p className="text-slate-600 text-xs">
+            © 2024 Pathify AI Labs. All rights reserved.
+          </p>
+          <div className="flex gap-8 text-slate-600 text-xs">
+            <a className="hover:text-white transition-colors" href="#">
+              Privacy Protocol
+            </a>
+            <a className="hover:text-white transition-colors" href="#">
+              Terms of Service
+            </a>
+          </div>
+        </div>
+      </footer>
     </div>
   );
-};
+}
+
+export default App;
