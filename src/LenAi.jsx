@@ -42,7 +42,6 @@ export const LenAi = () => {
   const { user } = useAuth();
 
   // --- UI STATES ---
-  // Now supports: 'chat' | 'roadmap' | 'store' | 'feedback'
   const [activeTab, setActiveTab] = useState("chat");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
@@ -59,6 +58,12 @@ export const LenAi = () => {
   const [roadmaps, setRoadmaps] = useState([]);
   const [activeRoadmap, setActiveRoadmap] = useState(null);
   const [roadmapLoading, setRoadmapLoading] = useState(false);
+
+  // --- EMAIL ASSISTANT STATES ---
+  const [emailInput, setEmailInput] = useState("");
+  const [emailImage, setEmailImage] = useState(null);
+  const [generatedEmail, setGeneratedEmail] = useState("");
+  const [emailLoading, setEmailLoading] = useState(false);
 
   // =========================================================================================
   // 1. FIRESTORE LISTENERS
@@ -130,7 +135,7 @@ export const LenAi = () => {
   }, [user]);
 
   // =========================================================================================
-  // 2. ACTIONS: CHAT (WITH MEMORY)
+  // 2. ACTIONS: CHAT (FIXED - NO MARKDOWN SYMBOLS)
   // =========================================================================================
   const scrollToBottom = () => {
     setTimeout(() => {
@@ -194,18 +199,42 @@ export const LenAi = () => {
         },
       );
 
-      // 3. CONTEXT INJECTION (The Memory Trick)
-      // We send the previous messages as "history" so Gemini knows who you are.
+      // 3. CONTEXT INJECTION (FIXED INSTRUCTION)
       const history = messages.map((msg) => ({
         role: msg.sender === "user" ? "user" : "model",
         parts: [{ text: msg.text }],
       }));
 
+      const SYSTEM_INSTRUCTION = `
+        You are LenAi, a Principal Software Architect and Elite Technical Mentor.
+        
+        YOUR IDENTITY:
+        - You are a top-tier industry expert.
+        - You value Scalability, Maintainability, and Clean Architecture.
+        
+        YOUR FORMATTING RULES (STRICT):
+        1. NO MARKDOWN SYMBOLS: Do NOT use asterisks (**bold**), hashtags (##), or dashes (-) for styling.
+        2. CLEAN TEXT ONLY: Your output must be plain text that looks good without rendering.
+        3. STRUCTURE: Use numbering (1., 2., 3.) for lists. Use double line breaks to separate paragraphs clearly.
+        4. TONE: Professional, direct, and concise. No fluff.
+        
+        Example of GOOD output:
+        1. Use Const over Let
+        Variable mutation leads to bugs. Always prefer const.
+
+        2. Early Returns
+        Avoid deep nesting by returning early in your functions.
+
+        (Do NOT use ** or ##).
+      `;
+
       const model = genAI.getGenerativeModel({
-        model: "gemini-3-flash-preview",
+        model: "gemini-2.5-flash-lite",
+        systemInstruction: SYSTEM_INSTRUCTION,
       });
+
       const chat = model.startChat({
-        history: history, // <--- This is the key!
+        history: history,
         generationConfig: {
           maxOutputTokens: 1000,
         },
@@ -220,30 +249,13 @@ export const LenAi = () => {
         collection(db, "users", user.uid, "chats", currentChatId, "messages"),
         {
           text: aiText,
-          sender: "Ai",
+          sender: "ai",
           createdAt: serverTimestamp(),
         },
       );
     } catch (error) {
       console.error(error);
-      // Fallback
-      try {
-        const model = genAI.getGenerativeModel({
-          model: "gemini-3-flash-preview",
-        });
-        const result = await model.generateContent(textToSend);
-        const response = await result.response;
-        await addDoc(
-          collection(db, "users", user.uid, "chats", currentChatId, "messages"),
-          {
-            text: response.text(),
-            sender: "ai",
-            createdAt: serverTimestamp(),
-          },
-        );
-      } catch (fallbackError) {
-        console.error("Fallback failed", fallbackError);
-      }
+      alert("AI is busy. Please try again.");
     } finally {
       setChatLoading(false);
     }
@@ -265,7 +277,7 @@ export const LenAi = () => {
 
     try {
       const model = genAI.getGenerativeModel({
-        model: "gemini-3-flash-preview",
+        model: "gemini-2.5-flash-lite",
       });
 
       const prompt = `
@@ -339,6 +351,93 @@ export const LenAi = () => {
     if (activeRoadmap?.id === id) setActiveRoadmap(null);
   };
 
+  // =========================================================================================
+  // 4. ACTIONS: EMAIL ASSISTANT (FIXED - CLEAN OUTPUT)
+  // =========================================================================================
+
+  // Helper: Convert file to Base64 for Gemini
+  const fileToGenerativePart = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64Data = reader.result.split(",")[1];
+        resolve({
+          inlineData: {
+            data: base64Data,
+            mimeType: file.type,
+          },
+        });
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setEmailImage(file);
+    }
+  };
+
+  const generateProfessionalEmail = async () => {
+    if ((!emailInput.trim() && !emailImage) || !genAI) return;
+
+    setEmailLoading(true);
+    setGeneratedEmail("");
+
+    try {
+      const model = genAI.getGenerativeModel({
+        model: "gemini-2.5-flash-lite",
+      });
+
+      const systemPrompt = `
+        You are an elite executive assistant. 
+        Your task: Draft a professional, elegant email based on user input.
+
+        RULES:
+        1. NO MARKDOWN: Do not use **bold**, ## headers, or special characters. Use plain text only.
+        2. STRUCTURE:
+           Subject: [Subject Here]
+           
+           Dear [Name],
+
+           [Body Paragraph 1]
+
+           [Body Paragraph 2]
+
+           Best regards,
+           [My Name]
+           
+        3. TONE: Professional, polite, confident.
+      `;
+
+      const promptParts = [systemPrompt, `User Input Context: ${emailInput}`];
+
+      // If an image exists, convert it and add to prompt
+      if (emailImage) {
+        const imagePart = await fileToGenerativePart(emailImage);
+        promptParts.push(imagePart);
+      }
+
+      const result = await model.generateContent(promptParts);
+      const response = await result.response;
+      setGeneratedEmail(response.text());
+    } catch (error) {
+      console.error("Email Gen Error:", error);
+      alert(
+        "Failed to generate email. Make sure the image is a valid format (PNG/JPG).",
+      );
+    } finally {
+      setEmailLoading(false);
+    }
+  };
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(generatedEmail);
+    alert("Email copied to clipboard!");
+  };
+
   const formatDate = (timestamp) => {
     if (!timestamp) return "Just now";
     if (timestamp.toDate) return timestamp.toDate().toLocaleDateString();
@@ -346,7 +445,7 @@ export const LenAi = () => {
   };
 
   // =========================================================================================
-  // 4. RENDER
+  // 5. RENDER
   // =========================================================================================
   return (
     <div className="flex h-screen bg-[#f8fafc] text-slate-900 font-sans overflow-hidden">
@@ -508,6 +607,16 @@ export const LenAi = () => {
                   }`}
                 >
                   Deep Resume Analysis
+                </button>
+                <button
+                  onClick={() => setActiveTab("email")}
+                  className={`px-3 py-1.5 rounded-md text-sm font-bold transition-all whitespace-nowrap ${
+                    activeTab === "email"
+                      ? "bg-white text-red-600 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Email Assistant
                 </button>
                 <button
                   onClick={() => setActiveTab("store")}
@@ -762,7 +871,109 @@ export const LenAi = () => {
           </div>
         )}
 
-        {/* 4. STORE VIEW */}
+        {/* 4. EMAIL ASSISTANT VIEW (UPDATED) */}
+        {activeTab === "email" && (
+          <div className="flex-1 overflow-y-auto bg-slate-50 p-6 md:p-10">
+            <div className="max-w-4xl mx-auto animate-fade-in-up">
+              <div className="text-center mb-10">
+                <div className="w-16 h-16 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center text-3xl mb-4 shadow-sm mx-auto">
+                  ✉️
+                </div>
+                <h2 className="text-3xl font-black text-slate-800">
+                  Professional Email Architect
+                </h2>
+                <p className="text-slate-500 mt-2">
+                  Upload a screenshot of notes or type a rough idea. LenAi will
+                  restructure it into a professional email.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {/* INPUT SECTION */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col gap-4 h-fit">
+                  <h3 className="font-bold text-slate-700">1. Draft Context</h3>
+
+                  <textarea
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm focus:ring-2 focus:ring-red-500/20 focus:border-red-500 outline-none transition-all resize-none h-40"
+                    placeholder="E.g., 'Tell the client we need to reschedule the meeting to Friday because I'm debugging the API...'"
+                    value={emailInput}
+                    onChange={(e) => setEmailInput(e.target.value)}
+                  />
+
+                  {/* Image Upload Box */}
+                  <div className="relative">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      id="email-file"
+                      className="hidden"
+                    />
+                    <label
+                      htmlFor="email-file"
+                      className={`flex items-center justify-center gap-2 w-full p-4 border-2 border-dashed rounded-xl cursor-pointer transition-all ${
+                        emailImage
+                          ? "border-red-500 bg-red-50 text-red-700"
+                          : "border-slate-300 hover:border-slate-400 text-slate-500"
+                      }`}
+                    >
+                      <span>
+                        {emailImage
+                          ? "📸 Image Attached"
+                          : "📸 Upload Image / Screenshot"}
+                      </span>
+                    </label>
+                    {emailImage && (
+                      <button
+                        onClick={() => setEmailImage(null)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-red-600 font-bold hover:underline"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={generateProfessionalEmail}
+                    disabled={emailLoading || (!emailInput && !emailImage)}
+                    className="w-full bg-slate-900 hover:bg-slate-800 text-white py-3 rounded-xl font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {emailLoading
+                      ? "Structuring..."
+                      : "Generate Professional Email"}
+                  </button>
+                </div>
+
+                {/* OUTPUT SECTION */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 min-h-[400px] flex flex-col">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-slate-700">
+                      2. Professional Output
+                    </h3>
+                    {generatedEmail && (
+                      <button
+                        onClick={copyToClipboard}
+                        className="text-xs font-bold text-red-600 hover:text-red-700 bg-red-50 px-3 py-1 rounded-full transition-colors"
+                      >
+                        Copy Text
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex-1 bg-slate-50 rounded-xl p-6 border border-slate-100 whitespace-pre-wrap text-slate-700 leading-relaxed font-medium">
+                    {generatedEmail || (
+                      <span className="text-slate-400 italic">
+                        Your generated email will appear here...
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 5. STORE VIEW */}
         {activeTab === "store" && (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center animate-fade-in-up">
@@ -781,7 +992,7 @@ export const LenAi = () => {
           </div>
         )}
 
-        {/* 5. FEEDBACK VIEW */}
+        {/* 6. FEEDBACK VIEW */}
         {activeTab === "feedback" && (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center animate-fade-in-up">
