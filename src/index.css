@@ -1,20 +1,8 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 body {
+  background-color: #f8fafc; /* Light Gray Background */
+  color: #0f172a;            /* Dark Text */
   margin: 0;
-  padding: 0;
-  width: 100%;
   min-height: 100vh;
-  overflow-x: hidden;
-  background-color: #0a0a0b;
-}
-
-#root {
-  width: 100%;
-  min-height: 100vh;
-  /* Important: This overrides the default 'margin: 0 auto' that breaks layouts */
-  margin: 0; 
-  padding: 0;
 }

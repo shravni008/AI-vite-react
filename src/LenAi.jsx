@@ -1,579 +1,810 @@
-import { useState, useRef, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { useNavigate } from "react-router-dom";
+import { useAuth } from "./context/AuthContext";
+import { db } from "./firebase";
 import {
-  MessageSquare,
-  Map,
-  Send,
-  Sparkles,
-  AlertCircle,
-  FileText,
-  Loader2,
-  CheckCircle2,
-  Circle,
-  Lock,
-  ChevronRight,
-  Trophy,
-} from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import { motion, AnimatePresence } from "framer-motion";
-import mammoth from "mammoth";
-import "./App.css";
+  collection,
+  addDoc,
+  query,
+  orderBy,
+  onSnapshot,
+  serverTimestamp,
+  doc,
+  deleteDoc,
+  updateDoc,
+} from "firebase/firestore";
 
-// Import your Resume Component
-import ResumeAnalyzer from "./ResumeAnalyzer";
-
-// 🔴 YOUR API KEY
+// Initialize Gemini safely
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+const genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
 
-// --- 1. LANDING PAGE (Kept mostly the same) ---
-export const LandingPage = () => {
-  const navigate = useNavigate();
+// --- SUGGESTION CHIPS ---
+const SUGGESTIONS = [
+  {
+    label: "Draft a Resume",
+    prompt: "Help me write a professional resume for a Software Engineer role.",
+  },
+  {
+    label: "Explain React",
+    prompt: "Explain React hooks to me like I'm 5 years old.",
+  },
+  {
+    label: "Debug Code",
+    prompt: "I have a bug in my JavaScript code. Can you help me find it?",
+  },
+  {
+    label: "Career Advice",
+    prompt: "What are the best steps to become a Full Stack Developer in 2025?",
+  },
+];
 
-  return (
-    <div className="min-h-screen text-slate-100 font-display bg-background-dark">
-      <nav className="fixed top-0 w-full z-50 border-b border-white/5 bg-background-dark/80 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="size-8 bg-primary rounded-lg flex items-center justify-center text-white">
-              <span className="material-symbols-outlined font-bold">
-                auto_awesome
-              </span>
-            </div>
-            <span className="text-xl font-black tracking-tight uppercase">
-              Career<span className="text-primary">AI</span>
-            </span>
-          </div>
-          {/* ... (Navigation links) ... */}
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => navigate("/LenAi")}
-              className="bg-primary text-white text-sm font-bold px-6 py-2.5 rounded-lg hover:scale-105 transition-all shadow-[0_0_20px_rgba(19,91,236,0.3)]"
-            >
-              Get Started
-            </button>
-          </div>
-        </div>
-      </nav>
-
-      <section className="relative pt-40 pb-20 px-6 overflow-hidden min-h-[90vh] flex items-center justify-center text-center">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full hero-glow pointer-events-none"></div>
-        <div className="relative z-10 space-y-8 max-w-4xl">
-          <h1 className="text-6xl md:text-8xl font-black leading-[1.1] tracking-tight text-white">
-            Your Career, <br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-cyan-400">
-              Engineered.
-            </span>
-          </h1>
-          <p className="text-xl text-slate-400 max-w-2xl mx-auto">
-            Generative roadmaps, resume intelligence, and instant mentorship.
-          </p>
-          <button
-            onClick={() => navigate("/LenAi")}
-            className="px-10 py-5 bg-white text-black font-black text-lg rounded-xl hover:scale-105 transition-transform"
-          >
-            Launch Workspace
-          </button>
-        </div>
-      </section>
-    </div>
-  );
-};
-
-// --- 2. MAIN APP COMPONENT ---
 export const LenAi = () => {
-  const [activeTab, setActiveTab] = useState("chat");
-  const [messages, setMessages] = useState([
-    {
-      role: "model",
-      text: "Hi! I'm your AI Career Architect. Tell me your target role (e.g., 'DevOps Engineer') and any specific tech you want to learn (e.g., 'Docker, AWS').",
-    },
-  ]);
+  const { user } = useAuth();
+
+  // --- UI STATES ---
+  const [activeTab, setActiveTab] = useState("chat"); // 'chat' | 'roadmap'
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
+  // --- CHAT STATES ---
   const [input, setInput] = useState("");
-
-  // Roadmap State
-  const [roadmap, setRoadmap] = useState(null);
-  const [completedChapters, setCompletedChapters] = useState([]); // Track progress IDs
-
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [resumeResult, setResumeResult] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [chats, setChats] = useState([]);
+  const [activeChatId, setActiveChatId] = useState(null);
+  const [chatLoading, setChatLoading] = useState(false);
   const messagesEndRef = useRef(null);
 
+  // --- ROADMAP STATES ---
+  const [roadmapInput, setRoadmapInput] = useState("");
+  const [roadmaps, setRoadmaps] = useState([]);
+  const [activeRoadmap, setActiveRoadmap] = useState(null);
+  const [roadmapLoading, setRoadmapLoading] = useState(false);
+
+  // =========================================================================================
+  // 1. FIRESTORE LISTENERS
+  // =========================================================================================
+
+  // Load CHATS Sidebar
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
-
-  const handleSend = async () => {
-    if (!input.trim()) return;
-    setError(null);
-    const userMsg = { role: "user", text: input };
-    setMessages((prev) => [...prev, userMsg]);
-    setInput("");
-    setLoading(true);
-
+    if (!user) return;
     try {
-      if (!API_KEY) throw new Error("API Key not found.");
-      const genAI = new GoogleGenerativeAI(API_KEY);
-      const model = genAI.getGenerativeModel({
-        model: "gemini-3-flash-preview",
+      const q = query(
+        collection(db, "users", user.uid, "chats"),
+        orderBy("createdAt", "desc"),
+      );
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const fetchedChats = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+        setChats(fetchedChats);
+        if (!activeChatId && fetchedChats.length > 0)
+          setActiveChatId(fetchedChats[0].id);
       });
-
-      let prompt = userMsg.text;
-      const isRoadmapRequest =
-        activeTab === "roadmap" ||
-        input.toLowerCase().includes("roadmap") ||
-        input.toLowerCase().includes("learn");
-
-      if (isRoadmapRequest) {
-        // --- UPGRADED PROMPT FOR STRUCTURED CHAPTERS ---
-        prompt = `
-          Act as a Senior Engineering Manager. Create a detailed, step-by-step career roadmap for: "${input}". 
-          
-          You MUST return the result in this EXACT JSON format (no markdown formatting, just raw JSON):
-          {
-            "role": "Target Job Title",
-            "description": "A brief, inspiring overview of this path.",
-            "chapters": [
-              {
-                "id": 1,
-                "title": "Chapter 1: Foundations",
-                "duration": "2 Weeks",
-                "description": "What they will learn in this phase.",
-                "topics": ["HTML", "CSS", "Git"],
-                "key_project": "Build a personal portfolio"
-              },
-              {
-                "id": 2,
-                "title": "Chapter 2: ...",
-                ...
-              }
-            ]
-          }
-          Ensure the chapters logically progress from beginner to advanced. If the user mentioned keywords (like AWS, Docker), ensure they are prominent chapters.
-        `;
-      }
-
-      const result = await model.generateContent(prompt);
-      const text = result.response.text();
-
-      if (isRoadmapRequest) {
-        try {
-          // Clean the response in case Gemini adds markdown code blocks
-          const cleanText = text.replace(/```json|```/g, "").trim();
-          const json = JSON.parse(cleanText);
-
-          setRoadmap(json);
-          setCompletedChapters([]); // Reset progress for new roadmap
-
-          setMessages((prev) => [
-            ...prev,
-            {
-              role: "model",
-              text: `I've generated a detailed roadmap for **${json.role}**. Switch to the **Roadmap Tab** to view your interactive plan!`,
-            },
-          ]);
-          setActiveTab("roadmap"); // Auto-switch to roadmap tab
-        } catch (e) {
-          console.error("JSON Parse Error", e);
-          setMessages((prev) => [
-            ...prev,
-            {
-              role: "model",
-              text:
-                "I created the plan, but there was a format error. Here is the raw text: \n" +
-                text,
-            },
-          ]);
-        }
-      } else {
-        setMessages((prev) => [...prev, { role: "model", text }]);
-      }
-    } catch (err) {
-      console.error(err);
-      setError("Failed to connect to AI.");
+      return () => unsubscribe();
+    } catch (e) {
+      console.error(e);
     }
-    setLoading(false);
-  };
+  }, [user]);
 
-  const handleResumeAnalysis = async (file) => {
-    // ... (Your existing Resume Logic) ...
-    if (!file) {
-      setResumeResult(null);
+  // Load MESSAGES for Active Chat
+  useEffect(() => {
+    if (!user || !activeChatId) {
+      setMessages([]);
       return;
     }
-    setLoading(true);
     try {
-      // Simple mock for text extraction if mammoth fails or just to keep it simple here
-      let textContent = "Resume content placeholder";
-      // In real app, use the Mammoth logic you had.
-      if (file.name.endsWith(".docx")) {
-        const arrayBuffer = await file.arrayBuffer();
-        const result = await mammoth.extractRawText({ arrayBuffer });
-        textContent = result.value;
+      const q = query(
+        collection(db, "users", user.uid, "chats", activeChatId, "messages"),
+        orderBy("createdAt", "asc"),
+      );
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        setMessages(
+          snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+        );
+        scrollToBottom();
+      });
+      return () => unsubscribe();
+    } catch (e) {
+      console.error(e);
+    }
+  }, [user, activeChatId]);
+
+  // Load SAVED ROADMAPS
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const q = query(
+        collection(db, "users", user.uid, "roadmaps"),
+        orderBy("createdAt", "desc"),
+      );
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        setRoadmaps(
+          snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+        );
+      });
+      return () => unsubscribe();
+    } catch (e) {
+      console.error(e);
+    }
+  }, [user]);
+
+  // =========================================================================================
+  // 2. ACTIONS: CHAT
+  // =========================================================================================
+  const scrollToBottom = () => {
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 100);
+  };
+
+  const createNewChat = async () => {
+    if (!user) return;
+    setActiveTab("chat");
+    try {
+      const docRef = await addDoc(collection(db, "users", user.uid, "chats"), {
+        title: "New Chat",
+        createdAt: serverTimestamp(),
+      });
+      setActiveChatId(docRef.id);
+      setMessages([]);
+      if (window.innerWidth < 768) setIsSidebarOpen(false);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleSendChat = async (customPrompt = null) => {
+    const textToSend = customPrompt || input;
+    if (!textToSend.trim() || !user || !genAI) return;
+
+    setInput("");
+    setChatLoading(true);
+
+    let currentChatId = activeChatId;
+
+    try {
+      if (!currentChatId) {
+        const docRef = await addDoc(
+          collection(db, "users", user.uid, "chats"),
+          {
+            title: textToSend.slice(0, 30) + "...",
+            createdAt: serverTimestamp(),
+          },
+        );
+        currentChatId = docRef.id;
+        setActiveChatId(currentChatId);
+      } else {
+        const currentChat = chats.find((c) => c.id === currentChatId);
+        if (currentChat?.title === "New Chat" && messages.length === 0) {
+          await updateDoc(doc(db, "users", user.uid, "chats", currentChatId), {
+            title: textToSend.slice(0, 30) + "...",
+          });
+        }
       }
 
-      const genAI = new GoogleGenerativeAI(API_KEY);
+      await addDoc(
+        collection(db, "users", user.uid, "chats", currentChatId, "messages"),
+        {
+          text: textToSend,
+          sender: "user",
+          createdAt: serverTimestamp(),
+        },
+      );
+
       const model = genAI.getGenerativeModel({
         model: "gemini-3-flash-preview",
       });
-      const prompt = `Act as a Recruiter. Analyze this resume: "${textContent.slice(0, 5000)}". Output JSON: { "score": 85, "summary": "...", "strengths": ["..."], "weaknesses": ["..."] }`;
+      const result = await model.generateContent(textToSend);
+      const response = await result.response;
+      const aiText = response.text();
+
+      await addDoc(
+        collection(db, "users", user.uid, "chats", currentChatId, "messages"),
+        {
+          text: aiText,
+          sender: "ai",
+          createdAt: serverTimestamp(),
+        },
+      );
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const deleteChat = async (e, chatId) => {
+    e.stopPropagation();
+    if (!window.confirm("Delete this chat?")) return;
+    await deleteDoc(doc(db, "users", user.uid, "chats", chatId));
+    if (activeChatId === chatId) setActiveChatId(null);
+  };
+
+  // =========================================================================================
+  // 3. ACTIONS: ROADMAP GENERATION
+  // =========================================================================================
+  const generateRoadmap = async () => {
+    if (!roadmapInput.trim() || !user || !genAI) return;
+    setRoadmapLoading(true);
+    // Don't clear active roadmap yet to avoid flicker
+
+    try {
+      const model = genAI.getGenerativeModel({
+        model: "gemini-3-flash-preview",
+      });
+
+      const prompt = `
+        Create a detailed, step-by-step career roadmap for a "${roadmapInput}".
+        Break it down into 5 to 7 distinct phases/steps.
+        For each step, provide:
+        1. "title": Short title of the phase.
+        2. "duration": Estimated time (e.g. "2-3 weeks").
+        3. "description": Brief advice.
+        4. "resources": An array of 2 or 3 specific, free search terms for YouTube/Google (e.g. "Traversy Media React Crash Course").
+        
+        RETURN ONLY RAW JSON. Do not use Markdown formatting.
+        Format:
+        [
+          {
+            "step": 1,
+            "title": "...",
+            "duration": "...",
+            "description": "...",
+            "resources": ["...", "..."]
+          }
+        ]
+      `;
 
       const result = await model.generateContent(prompt);
-      const cleanJson = result.response
-        .text()
-        .replace(/```json|```/g, "")
+      const response = await result.response;
+      let text = response.text();
+
+      // Clean up markdown if Gemini adds it
+      text = text
+        .replace(/```json/g, "")
+        .replace(/```/g, "")
         .trim();
-      setResumeResult(JSON.parse(cleanJson));
-    } catch (e) {
-      setError("Resume analysis failed");
+
+      let roadmapData;
+      try {
+        roadmapData = JSON.parse(text);
+      } catch (e) {
+        console.error("JSON Parse Error", text);
+        alert("AI response was not valid JSON. Please try again.");
+        setRoadmapLoading(false);
+        return;
+      }
+
+      // Save to Firestore
+      const newRoadmap = {
+        role: roadmapInput,
+        steps: roadmapData,
+        createdAt: serverTimestamp(),
+      };
+
+      const docRef = await addDoc(
+        collection(db, "users", user.uid, "roadmaps"),
+        newRoadmap,
+      );
+
+      setRoadmapInput("");
+
+      // FIXED: Don't rely on 'newRoadmap.createdAt' immediately as it's a server object
+      // We pass a fake date for immediate display, the real one loads from DB later
+      setActiveRoadmap({
+        id: docRef.id,
+        ...newRoadmap,
+        createdAt: { toDate: () => new Date() },
+      });
+    } catch (error) {
+      console.error("Roadmap Error:", error);
+      alert("Failed to generate roadmap. Please check connection.");
+    } finally {
+      setRoadmapLoading(false);
     }
-    setLoading(false);
   };
 
-  // Toggle chapter completion
-  const toggleChapter = (id) => {
-    if (completedChapters.includes(id)) {
-      setCompletedChapters(completedChapters.filter((c) => c !== id));
-    } else {
-      setCompletedChapters([...completedChapters, id]);
-    }
+  const deleteRoadmap = async (e, id) => {
+    e.stopPropagation();
+    if (!window.confirm("Delete this roadmap?")) return;
+    await deleteDoc(doc(db, "users", user.uid, "roadmaps", id));
+    if (activeRoadmap?.id === id) setActiveRoadmap(null);
   };
 
+  // Helper to format date safely
+  const formatDate = (timestamp) => {
+    if (!timestamp) return "Just now";
+    if (timestamp.toDate) return timestamp.toDate().toLocaleDateString();
+    return "Just now";
+  };
+
+  // =========================================================================================
+  // 4. RENDER
+  // =========================================================================================
   return (
-    <div className="flex h-screen bg-background-dark text-slate-100 overflow-hidden font-display selection:bg-primary/30">
-      {/* Sidebar */}
-      <aside className="w-[280px] bg-white/5 backdrop-blur-2xl border-r border-white/10 flex flex-col p-6 z-10">
-        <div className="flex items-center gap-3 mb-10 px-2">
-          <div className="p-2 bg-primary/20 rounded-lg border border-primary/30">
-            <Sparkles className="text-primary" size={20} />
-          </div>
-          <h2 className="text-xl font-bold tracking-tight">
-            Pathify<span className="text-primary">AI</span>
-          </h2>
+    <div className="flex h-screen bg-[#f8fafc] text-slate-900 font-sans overflow-hidden">
+      {/* --- SIDEBAR --- */}
+      <div
+        className={`${
+          isSidebarOpen
+            ? "w-[260px] translate-x-0"
+            : "w-0 -translate-x-full opacity-0"
+        } bg-[#0f172a] text-[#e2e8f0] flex flex-col transition-all duration-300 relative z-20 h-full shrink-0 shadow-xl`}
+      >
+        <div className="p-4 pt-6">
+          <button
+            onClick={
+              activeTab === "chat"
+                ? createNewChat
+                : () => setActiveRoadmap(null)
+            }
+            className="w-full flex items-center gap-3 px-4 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl transition-all shadow-lg shadow-blue-900/20 group font-semibold text-white"
+          >
+            <div className="bg-white/20 w-6 h-6 rounded-full flex items-center justify-center text-sm group-hover:scale-110 transition-transform">
+              +
+            </div>
+            <span>{activeTab === "chat" ? "New Chat" : "New Roadmap"}</span>
+          </button>
         </div>
 
-        <nav className="flex flex-col gap-2">
-          {[
-            { id: "chat", label: "Career Chat", icon: MessageSquare },
-            { id: "roadmap", label: "My Roadmap", icon: Map },
-            { id: "resume", label: "Resume Check", icon: FileText },
-          ].map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              className={`flex items-center gap-3 w-full p-3 rounded-xl transition-all font-medium text-sm ${
-                activeTab === item.id
-                  ? "bg-primary text-white shadow-lg shadow-primary/25"
-                  : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
-              }`}
-            >
-              <item.icon size={18} /> {item.label}
-            </button>
-          ))}
-        </nav>
-      </aside>
+        <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1 custom-scrollbar">
+          <div className="px-3 pb-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+            {activeTab === "chat" ? "Chat History" : "Saved Roadmaps"}
+          </div>
 
-      <main className="flex-1 flex flex-col relative z-10 overflow-hidden bg-[#0B0F17]">
-        {/* Background Effects */}
-        <div className="absolute top-[-20%] right-[-10%] w-[600px] h-[600px] bg-primary/10 rounded-full blur-[120px] pointer-events-none"></div>
-        <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-cyan-500/10 rounded-full blur-[120px] pointer-events-none"></div>
-
-        <AnimatePresence mode="wait">
-          {/* --- CHAT TAB --- */}
-          {activeTab === "chat" && (
-            <motion.div
-              key="chat"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="flex-1 flex flex-col max-w-5xl mx-auto w-full h-full"
-            >
-              <div className="flex-1 overflow-y-auto p-8 flex flex-col gap-6 scrollbar-hide">
-                {messages.map((msg, idx) => (
-                  <div
-                    key={idx}
-                    className={`flex gap-4 max-w-[80%] ${msg.role === "user" ? "ml-auto flex-row-reverse" : ""}`}
-                  >
-                    <div
-                      className={`size-8 rounded-full flex items-center justify-center shrink-0 ${msg.role === "user" ? "bg-primary" : "bg-slate-700"}`}
+          {activeTab === "chat"
+            ? chats.map((chat) => (
+                <div
+                  key={chat.id}
+                  onClick={() => {
+                    setActiveChatId(chat.id);
+                    if (window.innerWidth < 768) setIsSidebarOpen(false);
+                  }}
+                  className={`group flex items-center justify-between px-3 py-3 rounded-lg cursor-pointer text-sm transition-all border border-transparent ${
+                    activeChatId === chat.id
+                      ? "bg-slate-800 text-white border-slate-700 shadow-sm"
+                      : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"
+                  }`}
+                >
+                  <span className="truncate flex-1">{chat.title}</span>
+                  {activeChatId === chat.id && (
+                    <button
+                      onClick={(e) => deleteChat(e, chat.id)}
+                      className="ml-2 text-slate-500 hover:text-red-400"
                     >
-                      {msg.role === "user" ? (
-                        <span className="material-symbols-outlined text-sm">
-                          person
-                        </span>
-                      ) : (
-                        <Sparkles size={14} />
-                      )}
-                    </div>
-                    <div
-                      className={`p-4 rounded-2xl text-sm leading-relaxed border ${
-                        msg.role === "user"
-                          ? "bg-primary/10 border-primary/20 text-white"
-                          : "bg-white/5 border-white/10 text-slate-300"
-                      }`}
-                    >
-                      <ReactMarkdown>{msg.text}</ReactMarkdown>
-                    </div>
-                  </div>
-                ))}
-                {loading && (
-                  <div className="flex gap-4">
-                    <div className="size-8 rounded-full bg-slate-700 flex items-center justify-center shrink-0">
-                      <Sparkles size={14} />
-                    </div>
-                    <div className="p-4 rounded-2xl bg-white/5 border border-white/10 flex items-center gap-2">
-                      <Loader2
-                        className="animate-spin text-primary"
-                        size={16}
-                      />
-                      <span className="text-xs text-slate-400">
-                        Thinking...
-                      </span>
-                    </div>
-                  </div>
-                )}
-                <div ref={messagesEndRef} />
-              </div>
-
-              <div className="p-6">
-                <div className="bg-white/5 border border-white/10 rounded-2xl p-2 flex items-center shadow-2xl relative overflow-hidden group">
-                  <div className="absolute inset-0 bg-gradient-to-r from-primary/10 to-cyan-500/10 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></div>
-                  <input
-                    className="flex-1 bg-transparent border-none text-white px-5 py-3 outline-none placeholder:text-slate-500 text-sm"
-                    type="text"
-                    placeholder="E.g., 'Plan a roadmap for a React Native Developer focusing on performance...'"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleSend()}
-                    disabled={loading}
-                  />
+                      ×
+                    </button>
+                  )}
+                </div>
+              ))
+            : roadmaps.map((map) => (
+                <div
+                  key={map.id}
+                  onClick={() => setActiveRoadmap(map)}
+                  className={`group flex items-center justify-between px-3 py-3 rounded-lg cursor-pointer text-sm transition-all border border-transparent ${
+                    activeRoadmap?.id === map.id
+                      ? "bg-purple-900/30 text-purple-100 border-purple-500/30 shadow-sm"
+                      : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"
+                  }`}
+                >
+                  <span className="truncate flex-1 font-medium">
+                    {map.role}
+                  </span>
                   <button
-                    className="size-10 bg-primary text-white rounded-xl flex items-center justify-center hover:bg-blue-600 transition-colors shadow-lg shadow-primary/20"
-                    onClick={handleSend}
-                    disabled={loading}
+                    onClick={(e) => deleteRoadmap(e, map.id)}
+                    className="ml-2 text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100"
                   >
-                    <Send size={18} />
+                    ×
                   </button>
                 </div>
-              </div>
-            </motion.div>
-          )}
+              ))}
+        </div>
 
-          {/* --- ROADMAP TAB (NEW DESIGN) --- */}
-          {activeTab === "roadmap" && (
-            <motion.div
-              key="roadmap"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="flex-1 p-8 overflow-y-auto scrollbar-hide"
-            >
-              {!roadmap ? (
-                <div className="flex flex-col items-center justify-center h-full text-slate-500 gap-4">
-                  <div className="size-20 rounded-full bg-white/5 flex items-center justify-center">
-                    <Map size={32} className="opacity-50" />
+        <div className="p-4 border-t border-slate-800 bg-[#0f172a]">
+          <div className="flex items-center gap-3 hover:bg-slate-800 p-2 rounded-xl cursor-pointer transition-colors">
+            {user?.photoURL ? (
+              <img
+                src={user.photoURL}
+                alt="User"
+                className="w-9 h-9 rounded-full object-cover ring-2 ring-slate-700"
+              />
+            ) : (
+              <div className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
+                {user?.displayName?.[0] || "U"}
+              </div>
+            )}
+            <div className="flex flex-col overflow-hidden">
+              <span className="text-sm font-semibold text-white truncate">
+                {user?.displayName || "User"}
+              </span>
+              <span className="text-xs text-slate-400 truncate">
+                {user?.email}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* --- MAIN CONTENT AREA --- */}
+      <div className="flex-1 flex flex-col h-full relative min-w-0 bg-white">
+        <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
+          <div className="h-16 flex items-center justify-between px-4 md:px-6">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 6h16M4 12h16M4 18h16"
+                  />
+                </svg>
+              </button>
+
+              <div className="flex bg-slate-100 p-1 rounded-lg">
+                <button
+                  onClick={() => setActiveTab("chat")}
+                  className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${
+                    activeTab === "chat"
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  AI Chat
+                </button>
+                <button
+                  onClick={() => setActiveTab("roadmap")}
+                  className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${
+                    activeTab === "roadmap"
+                      ? "bg-white text-purple-600 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Build Roadmap
+                </button>
+                <button
+                  onClick={() => setActiveTab("resume")}
+                  className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${
+                    activeTab === "resume"
+                      ? "bg-white text-purple-600 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Deep Resume Analysis
+                </button>
+
+                <button
+                  onClick={() => setActiveTab("email")}
+                  className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${
+                    activeTab === "email"
+                      ? "bg-white text-purple-600 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Perfect Email Writing
+                </button>
+
+                <button
+                  onClick={() => setActiveTab("store")}
+                  className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${
+                    activeTab === "store"
+                      ? "bg-white text-purple-600 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  E-Learning Store
+                </button>
+                <button
+                  onClick={() => setActiveTab("feedback")}
+                  className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${
+                    activeTab === "feedback"
+                      ? "bg-white text-purple-600 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Feedback
+                </button>
+              </div>
+            </div>
+            <div className="font-bold text-slate-800 tracking-tight hidden md:block">
+              Len<span className="text-blue-600">Ai</span>
+            </div>
+          </div>
+        </header>
+
+        {/* --- BODY CONTENT SWITCHER --- */}
+
+        {/* 1. CHAT VIEW */}
+        {activeTab === "chat" && (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="flex-1 overflow-y-auto px-4 md:px-0">
+              {messages.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center max-w-3xl mx-auto px-4 animate-fade-in-up">
+                  <div className="bg-blue-50 p-6 rounded-3xl mb-6 shadow-sm">
+                    <span className="text-4xl">👋</span>
                   </div>
-                  <p>
-                    Ask for a specific path in the Chat to generate your
-                    roadmap.
+                  <h1 className="text-2xl md:text-3xl font-bold text-slate-800 mb-2 text-center">
+                    Hello, {user?.displayName?.split(" ")[0]}
+                  </h1>
+                  <p className="text-slate-500 mb-10 text-center">
+                    Ready to engineer your next career move?
                   </p>
-                  <button
-                    onClick={() => setActiveTab("chat")}
-                    className="text-primary text-sm font-bold hover:underline"
-                  >
-                    Go to Chat
-                  </button>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full">
+                    {SUGGESTIONS.map((s, i) => (
+                      <button
+                        key={i}
+                        onClick={() => handleSendChat(s.prompt)}
+                        className="text-left p-4 rounded-xl border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 transition-all group bg-white shadow-sm"
+                      >
+                        <div className="font-bold text-slate-700 text-sm mb-1 group-hover:text-blue-600">
+                          {s.label}
+                        </div>
+                        <div className="text-xs text-slate-400">{s.prompt}</div>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               ) : (
-                <div className="max-w-4xl mx-auto pb-20">
-                  {/* Header */}
-                  <div className="mb-12 text-center">
-                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-bold uppercase tracking-widest mb-4">
-                      <span className="size-2 bg-green-500 rounded-full animate-pulse"></span>
-                      Live Career Blueprint
-                    </div>
-                    <h1 className="text-4xl md:text-5xl font-black text-white mb-4 tracking-tight">
-                      {roadmap.role}
-                    </h1>
-                    <p className="text-slate-400 max-w-2xl mx-auto text-lg">
-                      {roadmap.description}
-                    </p>
-
-                    {/* Progress Bar */}
-                    <div className="mt-8 max-w-md mx-auto bg-white/5 rounded-full h-2 overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-primary to-cyan-400 transition-all duration-1000"
-                        style={{
-                          width: `${(completedChapters.length / roadmap.chapters.length) * 100}%`,
-                        }}
-                      ></div>
-                    </div>
-                    <p className="text-xs text-slate-500 mt-2 font-mono">
-                      {Math.round(
-                        (completedChapters.length / roadmap.chapters.length) *
-                          100,
+                <div className="max-w-3xl mx-auto py-8 space-y-6">
+                  {messages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={`flex gap-4 ${msg.sender === "user" ? "justify-end" : "justify-start"}`}
+                    >
+                      {msg.sender === "ai" && (
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex-shrink-0 flex items-center justify-center text-black text-[10px] font-bold shadow-md">
+                          AI
+                        </div>
                       )}
-                      % COMPLETE
+                      <div
+                        className={`max-w-[85%] px-6 py-4 rounded-2xl text-[15px] leading-relaxed shadow-sm whitespace-pre-wrap ${
+                          msg.sender === "user"
+                            ? "bg-slate-900 text-white rounded-br-none"
+                            : "bg-white border border-slate-200 text-slate-800 rounded-tl-none"
+                        }`}
+                      >
+                        {msg.text}
+                      </div>
+                      {msg.sender === "user" && (
+                        <img
+                          src={user?.photoURL}
+                          className="w-8 h-8 rounded-full border border-slate-200"
+                          alt=""
+                        />
+                      )}
+                    </div>
+                  ))}
+                  {chatLoading && (
+                    <div className="ml-12 text-slate-400 text-sm animate-pulse">
+                      LenAi is thinking...
+                    </div>
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+              )}
+            </div>
+            <div className="p-4 bg-white/80 backdrop-blur-md border-t border-slate-100">
+              <div className="max-w-3xl mx-auto relative">
+                <input
+                  className="w-full bg-slate-100 hover:bg-slate-50 border-none focus:bg-white focus:ring-2 focus:ring-blue-100 text-slate-900 rounded-2xl px-6 py-4 pr-14 transition-all font-medium placeholder:text-slate-400 shadow-inner"
+                  placeholder="Message LenAi..."
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSendChat()}
+                  disabled={chatLoading}
+                />
+                <button
+                  onClick={() => handleSendChat()}
+                  disabled={!input.trim()}
+                  className="absolute right-2 top-2 bottom-2 bg-slate-900 hover:bg-slate-700 text-white w-10 h-10 rounded-xl flex items-center justify-center transition-all disabled:opacity-0 disabled:scale-75"
+                >
+                  ➤
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 2. ROADMAP VIEW */}
+        {activeTab === "roadmap" && (
+          <div className="flex-1 overflow-y-auto bg-slate-50 p-6 md:p-10">
+            <div className="max-w-4xl mx-auto">
+              {!activeRoadmap && (
+                <div className="flex flex-col items-center justify-center py-20 animate-fade-in-up">
+                  <div className="w-16 h-16 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center text-3xl mb-6 shadow-sm">
+                    🗺️
+                  </div>
+                  <h2 className="text-3xl md:text-4xl font-black text-slate-800 mb-4 text-center">
+                    Build Your Career Roadmap
+                  </h2>
+                  <p className="text-slate-500 mb-8 text-center max-w-lg text-lg">
+                    Enter your dream role (e.g. "DevOps Engineer", "Data
+                    Scientist") and AI will engineer a step-by-step path for
+                    you.
+                  </p>
+
+                  <div className="w-full max-w-xl relative flex items-center">
+                    <input
+                      type="text"
+                      placeholder="I want to become a..."
+                      className="w-full text-lg px-6 py-5 rounded-2xl border-2 border-slate-200 focus:border-purple-500 focus:ring-4 focus:ring-purple-500/10 outline-none transition-all shadow-xl shadow-purple-500/5 bg-white"
+                      value={roadmapInput}
+                      onChange={(e) => setRoadmapInput(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && generateRoadmap()}
+                      disabled={roadmapLoading}
+                    />
+                    <button
+                      onClick={generateRoadmap}
+                      disabled={roadmapLoading || !roadmapInput.trim()}
+                      className="absolute right-3 bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-bold transition-all disabled:opacity-50"
+                    >
+                      {roadmapLoading ? "Generating..." : "Generate Path"}
+                    </button>
+                  </div>
+
+                  {roadmaps.length > 0 && (
+                    <p className="mt-12 text-sm font-bold text-slate-400 uppercase tracking-widest">
+                      Or select a saved roadmap from the sidebar
                     </p>
+                  )}
+                </div>
+              )}
+
+              {activeRoadmap && (
+                <div className="animate-fade-in-up">
+                  {/* Header */}
+                  <div className="flex justify-between items-start mb-10">
+                    <div>
+                      <div className="inline-block px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-bold uppercase tracking-wider mb-2">
+                        Generated Path
+                      </div>
+                      <h1 className="text-3xl font-black text-slate-900 capitalize">
+                        {activeRoadmap.role}
+                      </h1>
+                      <p className="text-slate-500 mt-1">
+                        {/* FIXED: Safe Date Rendering */}
+                        Created on {formatDate(activeRoadmap.createdAt)}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setActiveRoadmap(null)}
+                      className="text-sm font-bold text-slate-400 hover:text-slate-600 underline"
+                    >
+                      Create New
+                    </button>
                   </div>
 
                   {/* Timeline */}
-                  <div className="relative pl-4 md:pl-0">
-                    {/* Vertical Line */}
-                    <div className="absolute left-8 md:left-1/2 top-0 bottom-0 w-px bg-gradient-to-b from-primary via-white/10 to-transparent md:-translate-x-1/2"></div>
+                  <div className="relative border-l-2 border-slate-200 ml-4 md:ml-6 space-y-10 pb-10">
+                    {activeRoadmap.steps.map((step, index) => (
+                      <div key={index} className="relative pl-8 md:pl-12 group">
+                        <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-white border-4 border-slate-300 group-hover:border-purple-500 transition-colors"></div>
 
-                    <div className="space-y-12">
-                      {roadmap.chapters?.map((chapter, index) => {
-                        const isCompleted = completedChapters.includes(
-                          chapter.id,
-                        );
-                        const isNext =
-                          !isCompleted &&
-                          (index === 0 ||
-                            completedChapters.includes(
-                              roadmap.chapters[index - 1].id,
-                            ));
-                        const isLocked = !isCompleted && !isNext;
+                        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-lg hover:border-purple-100 transition-all duration-300">
+                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 mb-3">
+                            <h3 className="text-xl font-bold text-slate-800">
+                              {step.title}
+                            </h3>
+                            <span className="text-xs font-bold bg-slate-100 text-slate-500 px-3 py-1 rounded-full whitespace-nowrap">
+                              ⏱ {step.duration}
+                            </span>
+                          </div>
 
-                        return (
-                          <motion.div
-                            key={chapter.id}
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: index * 0.1 }}
-                            className={`relative flex flex-col md:flex-row gap-8 items-center md:items-start ${index % 2 === 0 ? "md:flex-row-reverse" : ""}`}
-                          >
-                            {/* Center Node */}
-                            <div
-                              onClick={() =>
-                                !isLocked && toggleChapter(chapter.id)
-                              }
-                              className={`absolute left-8 md:left-1/2 md:-translate-x-1/2 top-0 size-16 rounded-full border-4 z-10 flex items-center justify-center cursor-pointer transition-all duration-300 hover:scale-110 bg-background-dark
-                                    ${
-                                      isCompleted
-                                        ? "border-green-500 text-green-500 shadow-[0_0_20px_rgba(34,197,94,0.4)]"
-                                        : isNext
-                                          ? "border-primary text-primary shadow-[0_0_20px_rgba(19,91,236,0.4)] animate-pulse"
-                                          : "border-white/10 text-slate-600 grayscale"
-                                    }
-                                `}
-                            >
-                              {isCompleted ? (
-                                <CheckCircle2 size={24} strokeWidth={3} />
-                              ) : isLocked ? (
-                                <Lock size={20} />
-                              ) : (
-                                <span className="text-xl font-bold">
-                                  {index + 1}
-                                </span>
-                              )}
-                            </div>
+                          <p className="text-slate-600 leading-relaxed mb-5">
+                            {step.description}
+                          </p>
 
-                            {/* Content Card */}
-                            <div
-                              className={`ml-20 md:ml-0 md:w-[calc(50%-40px)] group ${isLocked ? "opacity-50 blur-[1px]" : "opacity-100"}`}
-                            >
-                              <div
-                                className={`p-6 rounded-2xl border backdrop-blur-sm transition-all duration-300
-                                    ${
-                                      isNext
-                                        ? "bg-primary/5 border-primary/30 ring-1 ring-primary/20 shadow-2xl"
-                                        : "bg-white/5 border-white/5 hover:bg-white/10"
-                                    }
-                                `}
-                              >
-                                <div className="flex justify-between items-start mb-4">
-                                  <div className="inline-flex items-center gap-2 px-2 py-1 rounded-md bg-white/5 border border-white/10 text-[10px] font-bold text-slate-400 uppercase">
-                                    <span className="material-symbols-outlined text-sm">
-                                      schedule
-                                    </span>
-                                    {chapter.duration}
-                                  </div>
-                                  {isNext && (
-                                    <span className="text-xs font-bold text-primary animate-pulse">
-                                      CURRENT FOCUS
-                                    </span>
-                                  )}
-                                </div>
-
-                                <h3
-                                  className={`text-xl font-bold mb-2 ${isNext ? "text-white" : "text-slate-200"}`}
+                          <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                            <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-2">
+                              <span>📺</span> Recommended Search Terms
+                            </h4>
+                            <div className="flex flex-wrap gap-2">
+                              {step.resources.map((res, rIndex) => (
+                                <a
+                                  key={rIndex}
+                                  href={`https://www.youtube.com/results?search_query=${encodeURIComponent(res)}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-sm text-blue-600 bg-white border border-slate-200 px-3 py-1.5 rounded-lg hover:border-blue-300 hover:shadow-sm transition-all flex items-center gap-1"
                                 >
-                                  {chapter.title}
-                                </h3>
-                                <p className="text-sm text-slate-400 leading-relaxed mb-6">
-                                  {chapter.description}
-                                </p>
-
-                                {/* Topics Tags */}
-                                <div className="flex flex-wrap gap-2 mb-4">
-                                  {chapter.topics.map((topic, i) => (
-                                    <span
-                                      key={i}
-                                      className="text-xs font-medium px-2.5 py-1 rounded-full bg-black/30 border border-white/10 text-slate-300"
-                                    >
-                                      {topic}
-                                    </span>
-                                  ))}
-                                </div>
-
-                                {/* Project */}
-                                {chapter.key_project && (
-                                  <div className="mt-4 pt-4 border-t border-white/5 flex items-start gap-3">
-                                    <div className="p-1.5 bg-accent-violet/10 rounded-md text-accent-violet mt-0.5">
-                                      <Trophy size={14} />
-                                    </div>
-                                    <div>
-                                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                                        Milestone Project
-                                      </p>
-                                      <p className="text-sm font-medium text-slate-200">
-                                        {chapter.key_project}
-                                      </p>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
+                                  {res} <span className="opacity-50">↗</span>
+                                </a>
+                              ))}
                             </div>
-                          </motion.div>
-                        );
-                      })}
-
-                      {/* End Node */}
-                      <div className="flex flex-col items-center justify-center relative z-10 pt-8">
-                        <div className="size-20 bg-gradient-to-tr from-primary to-cyan-400 rounded-full flex items-center justify-center shadow-[0_0_50px_rgba(19,91,236,0.5)]">
-                          <Trophy className="text-white" size={32} />
+                          </div>
                         </div>
-                        <p className="mt-4 text-primary font-bold tracking-widest text-sm uppercase">
-                          Goal Reached
-                        </p>
                       </div>
-                    </div>
+                    ))}
                   </div>
                 </div>
               )}
-            </motion.div>
-          )}
+            </div>
+          </div>
+        )}
 
-          {/* --- RESUME TAB (EXISTING) --- */}
-          {activeTab === "resume" && (
-            <motion.div
-              key="resume"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 flex"
-            >
-              <ResumeAnalyzer
-                onAnalyze={handleResumeAnalysis}
-                analysis={resumeResult}
-                loading={loading}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </main>
+        {/* 3. RESUME ANALYSIS VIEW (COMING SOON) */}
+        {activeTab === "resume" && (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center animate-fade-in-up">
+              <div className="w-16 h-16 bg-green-100 text-green-600 rounded-2xl flex items-center justify-center text-3xl mb-6 shadow-sm">
+                🚧
+              </div>
+              <h2 className="text-3xl md:text-4xl font-black text-slate-800 mb-4">
+                Deep Resume Analysis
+              </h2>
+              <p className="text-slate-500 mb-8 max-w-md mx-auto text-lg">
+                This feature is coming soon! Get ready for AI-powered insights
+                to optimize your resume and land your dream job.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* 4. EMAIL WRITING VIEW (COMING SOON) */}
+        {activeTab === "email" && (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center animate-fade-in-up">
+              <div className="w-16 h-16 bg-yellow-100 text-yellow-600 rounded-2xl flex items-center justify-center text-3xl mb-6 shadow-sm">
+                🚧
+              </div>
+              <h2 className="text-3xl md:text-4xl font-black text-slate-800 mb-4">
+                Perfect Email Writing
+              </h2>
+              <p className="text-slate-500 mb-8 max-w-md mx-auto text-lg">
+                This feature is coming soon! Soon you'll be able to craft
+                flawless emails for networking, job applications, and more with
+                AI assistance.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* 5. E-LEARNING STORE VIEW (COMING SOON) */}
+        {activeTab === "store" && (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center animate-fade-in-up">
+              <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center text-3xl mb-6 shadow-sm">
+                🚧
+              </div>
+              <h2 className="text-3xl md:text-4xl font-black text-slate-800 mb-4">
+                E-Learning Store
+              </h2>
+              <p className="text-slate-500 mb-8 max-w-md mx-auto text-lg">
+                This feature is coming soon! Explore curated courses, books, and
+                resources recommended by AI to supercharge your learning
+                journey.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* 6. FEEDBACK VIEW (COMING SOON) */}
+        {activeTab === "feedback" && (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center animate-fade-in-up">
+              <div className="w-16 h-16 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center text-3xl mb-6 shadow-sm">
+                🚧
+              </div>
+              <h2 className="text-3xl md:text-4xl font-black text-slate-800 mb-4">
+                Feedback & Support
+              </h2>
+              <p className="text-slate-500 mb-8 max-w-md mx-auto text-lg">
+                This feature is coming soon! We value your feedback to make
+                LenAi better. Soon you'll be able to submit feedback and get
+                support directly within the app.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
