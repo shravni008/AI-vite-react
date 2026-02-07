@@ -42,7 +42,8 @@ export const LenAi = () => {
   const { user } = useAuth();
 
   // --- UI STATES ---
-  const [activeTab, setActiveTab] = useState("chat"); // 'chat' | 'roadmap'
+  // Now supports: 'chat' | 'roadmap' | 'store' | 'feedback'
+  const [activeTab, setActiveTab] = useState("chat");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   // --- CHAT STATES ---
@@ -129,7 +130,7 @@ export const LenAi = () => {
   }, [user]);
 
   // =========================================================================================
-  // 2. ACTIONS: CHAT
+  // 2. ACTIONS: CHAT (WITH MEMORY)
   // =========================================================================================
   const scrollToBottom = () => {
     setTimeout(() => {
@@ -163,6 +164,7 @@ export const LenAi = () => {
     let currentChatId = activeChatId;
 
     try {
+      // 1. Ensure Chat Exists
       if (!currentChatId) {
         const docRef = await addDoc(
           collection(db, "users", user.uid, "chats"),
@@ -182,6 +184,7 @@ export const LenAi = () => {
         }
       }
 
+      // 2. Save User Message
       await addDoc(
         collection(db, "users", user.uid, "chats", currentChatId, "messages"),
         {
@@ -191,23 +194,56 @@ export const LenAi = () => {
         },
       );
 
+      // 3. CONTEXT INJECTION (The Memory Trick)
+      // We send the previous messages as "history" so Gemini knows who you are.
+      const history = messages.map((msg) => ({
+        role: msg.sender === "user" ? "user" : "model",
+        parts: [{ text: msg.text }],
+      }));
+
       const model = genAI.getGenerativeModel({
         model: "gemini-3-flash-preview",
       });
-      const result = await model.generateContent(textToSend);
+      const chat = model.startChat({
+        history: history, // <--- This is the key!
+        generationConfig: {
+          maxOutputTokens: 1000,
+        },
+      });
+
+      const result = await chat.sendMessage(textToSend);
       const response = await result.response;
       const aiText = response.text();
 
+      // 4. Save AI Response
       await addDoc(
         collection(db, "users", user.uid, "chats", currentChatId, "messages"),
         {
           text: aiText,
-          sender: "ai",
+          sender: "Ai",
           createdAt: serverTimestamp(),
         },
       );
     } catch (error) {
       console.error(error);
+      // Fallback
+      try {
+        const model = genAI.getGenerativeModel({
+          model: "gemini-3-flash-preview",
+        });
+        const result = await model.generateContent(textToSend);
+        const response = await result.response;
+        await addDoc(
+          collection(db, "users", user.uid, "chats", currentChatId, "messages"),
+          {
+            text: response.text(),
+            sender: "ai",
+            createdAt: serverTimestamp(),
+          },
+        );
+      } catch (fallbackError) {
+        console.error("Fallback failed", fallbackError);
+      }
     } finally {
       setChatLoading(false);
     }
@@ -226,7 +262,6 @@ export const LenAi = () => {
   const generateRoadmap = async () => {
     if (!roadmapInput.trim() || !user || !genAI) return;
     setRoadmapLoading(true);
-    // Don't clear active roadmap yet to avoid flicker
 
     try {
       const model = genAI.getGenerativeModel({
@@ -258,8 +293,6 @@ export const LenAi = () => {
       const result = await model.generateContent(prompt);
       const response = await result.response;
       let text = response.text();
-
-      // Clean up markdown if Gemini adds it
       text = text
         .replace(/```json/g, "")
         .replace(/```/g, "")
@@ -275,7 +308,6 @@ export const LenAi = () => {
         return;
       }
 
-      // Save to Firestore
       const newRoadmap = {
         role: roadmapInput,
         steps: roadmapData,
@@ -286,11 +318,7 @@ export const LenAi = () => {
         collection(db, "users", user.uid, "roadmaps"),
         newRoadmap,
       );
-
       setRoadmapInput("");
-
-      // FIXED: Don't rely on 'newRoadmap.createdAt' immediately as it's a server object
-      // We pass a fake date for immediate display, the real one loads from DB later
       setActiveRoadmap({
         id: docRef.id,
         ...newRoadmap,
@@ -311,7 +339,6 @@ export const LenAi = () => {
     if (activeRoadmap?.id === id) setActiveRoadmap(null);
   };
 
-  // Helper to format date safely
   const formatDate = (timestamp) => {
     if (!timestamp) return "Just now";
     if (timestamp.toDate) return timestamp.toDate().toLocaleDateString();
@@ -427,6 +454,7 @@ export const LenAi = () => {
 
       {/* --- MAIN CONTENT AREA --- */}
       <div className="flex-1 flex flex-col h-full relative min-w-0 bg-white">
+        {/* HEADER & TABS */}
         <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
           <div className="h-16 flex items-center justify-between px-4 md:px-6">
             <div className="flex items-center gap-4">
@@ -449,10 +477,11 @@ export const LenAi = () => {
                 </svg>
               </button>
 
-              <div className="flex bg-slate-100 p-1 rounded-lg">
+              {/* NAV TABS */}
+              <div className="flex bg-slate-100 p-1 rounded-lg overflow-x-auto no-scrollbar">
                 <button
                   onClick={() => setActiveTab("chat")}
-                  className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${
+                  className={`px-3 py-1.5 rounded-md text-sm font-bold transition-all whitespace-nowrap ${
                     activeTab === "chat"
                       ? "bg-white text-slate-900 shadow-sm"
                       : "text-slate-500 hover:text-slate-700"
@@ -462,41 +491,29 @@ export const LenAi = () => {
                 </button>
                 <button
                   onClick={() => setActiveTab("roadmap")}
-                  className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${
+                  className={`px-3 py-1.5 rounded-md text-sm font-bold transition-all whitespace-nowrap ${
                     activeTab === "roadmap"
                       ? "bg-white text-purple-600 shadow-sm"
                       : "text-slate-500 hover:text-slate-700"
                   }`}
                 >
-                  Build Roadmap
+                  Roadmap
                 </button>
                 <button
                   onClick={() => setActiveTab("resume")}
-                  className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${
+                  className={`px-3 py-1.5 rounded-md text-sm font-bold transition-all whitespace-nowrap ${
                     activeTab === "resume"
-                      ? "bg-white text-purple-600 shadow-sm"
+                      ? "bg-white text-slate-600 shadow-sm"
                       : "text-slate-500 hover:text-slate-700"
                   }`}
                 >
                   Deep Resume Analysis
                 </button>
-
-                <button
-                  onClick={() => setActiveTab("email")}
-                  className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${
-                    activeTab === "email"
-                      ? "bg-white text-purple-600 shadow-sm"
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  Perfect Email Writing
-                </button>
-
                 <button
                   onClick={() => setActiveTab("store")}
-                  className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${
+                  className={`px-3 py-1.5 rounded-md text-sm font-bold transition-all whitespace-nowrap ${
                     activeTab === "store"
-                      ? "bg-white text-purple-600 shadow-sm"
+                      ? "bg-white text-indigo-600 shadow-sm"
                       : "text-slate-500 hover:text-slate-700"
                   }`}
                 >
@@ -504,9 +521,9 @@ export const LenAi = () => {
                 </button>
                 <button
                   onClick={() => setActiveTab("feedback")}
-                  className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${
+                  className={`px-3 py-1.5 rounded-md text-sm font-bold transition-all whitespace-nowrap ${
                     activeTab === "feedback"
-                      ? "bg-white text-purple-600 shadow-sm"
+                      ? "bg-white text-red-600 shadow-sm"
                       : "text-slate-500 hover:text-slate-700"
                   }`}
                 >
@@ -660,7 +677,6 @@ export const LenAi = () => {
 
               {activeRoadmap && (
                 <div className="animate-fade-in-up">
-                  {/* Header */}
                   <div className="flex justify-between items-start mb-10">
                     <div>
                       <div className="inline-block px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-bold uppercase tracking-wider mb-2">
@@ -670,7 +686,6 @@ export const LenAi = () => {
                         {activeRoadmap.role}
                       </h1>
                       <p className="text-slate-500 mt-1">
-                        {/* FIXED: Safe Date Rendering */}
                         Created on {formatDate(activeRoadmap.createdAt)}
                       </p>
                     </div>
@@ -682,7 +697,6 @@ export const LenAi = () => {
                     </button>
                   </div>
 
-                  {/* Timeline */}
                   <div className="relative border-l-2 border-slate-200 ml-4 md:ml-6 space-y-10 pb-10">
                     {activeRoadmap.steps.map((step, index) => (
                       <div key={index} className="relative pl-8 md:pl-12 group">
@@ -730,48 +744,29 @@ export const LenAi = () => {
           </div>
         )}
 
-        {/* 3. RESUME ANALYSIS VIEW (COMING SOON) */}
+        {/* 3. RESUME VIEW */}
         {activeTab === "resume" && (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center animate-fade-in-up">
-              <div className="w-16 h-16 bg-green-100 text-green-600 rounded-2xl flex items-center justify-center text-3xl mb-6 shadow-sm">
+              <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center text-3xl mb-6 shadow-sm mx-auto">
                 🚧
               </div>
               <h2 className="text-3xl md:text-4xl font-black text-slate-800 mb-4">
                 Deep Resume Analysis
               </h2>
               <p className="text-slate-500 mb-8 max-w-md mx-auto text-lg">
-                This feature is coming soon! Get ready for AI-powered insights
-                to optimize your resume and land your dream job.
+                This feature is coming soon! Get AI-powered insights to optimize
+                your resume for ATS and recruiters.
               </p>
             </div>
           </div>
         )}
 
-        {/* 4. EMAIL WRITING VIEW (COMING SOON) */}
-        {activeTab === "email" && (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center animate-fade-in-up">
-              <div className="w-16 h-16 bg-yellow-100 text-yellow-600 rounded-2xl flex items-center justify-center text-3xl mb-6 shadow-sm">
-                🚧
-              </div>
-              <h2 className="text-3xl md:text-4xl font-black text-slate-800 mb-4">
-                Perfect Email Writing
-              </h2>
-              <p className="text-slate-500 mb-8 max-w-md mx-auto text-lg">
-                This feature is coming soon! Soon you'll be able to craft
-                flawless emails for networking, job applications, and more with
-                AI assistance.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* 5. E-LEARNING STORE VIEW (COMING SOON) */}
+        {/* 4. STORE VIEW */}
         {activeTab === "store" && (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center animate-fade-in-up">
-              <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center text-3xl mb-6 shadow-sm">
+              <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center text-3xl mb-6 shadow-sm mx-auto">
                 🚧
               </div>
               <h2 className="text-3xl md:text-4xl font-black text-slate-800 mb-4">
@@ -786,11 +781,11 @@ export const LenAi = () => {
           </div>
         )}
 
-        {/* 6. FEEDBACK VIEW (COMING SOON) */}
+        {/* 5. FEEDBACK VIEW */}
         {activeTab === "feedback" && (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center animate-fade-in-up">
-              <div className="w-16 h-16 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center text-3xl mb-6 shadow-sm">
+              <div className="w-16 h-16 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center text-3xl mb-6 shadow-sm mx-auto">
                 🚧
               </div>
               <h2 className="text-3xl md:text-4xl font-black text-slate-800 mb-4">
@@ -798,8 +793,7 @@ export const LenAi = () => {
               </h2>
               <p className="text-slate-500 mb-8 max-w-md mx-auto text-lg">
                 This feature is coming soon! We value your feedback to make
-                LenAi better. Soon you'll be able to submit feedback and get
-                support directly within the app.
+                LenAi better.
               </p>
             </div>
           </div>
