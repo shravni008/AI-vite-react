@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef } from "react";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { useAuth } from "./context/AuthContext";
 import { db } from "./firebase";
+import * as pdfjsLib from "pdfjs-dist";
+import mammoth from "mammoth";
+
 import {
   collection,
   addDoc,
@@ -746,21 +749,12 @@ export const LenAi = () => {
 
         {/* 3. RESUME VIEW */}
         {activeTab === "resume" && (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center animate-fade-in-up">
-              <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center text-3xl mb-6 shadow-sm mx-auto">
-                🚧
-              </div>
-              <h2 className="text-3xl md:text-4xl font-black text-slate-800 mb-4">
-                Deep Resume Analysis
-              </h2>
-              <p className="text-slate-500 mb-8 max-w-md mx-auto text-lg">
-                This feature is coming soon! Get AI-powered insights to optimize
-                your resume for ATS and recruiters.
-              </p>
-            </div>
-          </div>
+          <div className="flex-1 overflow-y-auto bg-slate-50 p-6">
+            <ResumeAnalyzer />
+         </div>
         )}
+        
+    
 
         {/* 4. STORE VIEW */}
         {activeTab === "store" && (
@@ -799,6 +793,201 @@ export const LenAi = () => {
           </div>
         )}
       </div>
+    </div>
+  );
+};
+
+
+{/*DEEP RESUME ANALYZER UI & LOGIC*/}
+{/* TODO (shravni ahire): updated the UI andlogic of Deep Resume Analayzer on 08-feb-2026 */}
+const ResumeAnalyzer = () => {
+  const [file, setFile] = useState(null);
+  const [score, setScore] = useState(null);
+  const [suggestions, setSuggestions] = useState({});
+  const [loading, setLoading] = useState(false);
+
+  const handleFileChange = (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+
+    if (
+      f.type === "application/pdf" ||
+      f.type ===
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ) {
+      setFile(f);
+    } else {
+      alert("Only PDF or DOCX allowed");
+    }
+  };
+
+  const extractText = async (file) => {
+    if (file.type === "application/pdf") {
+      const buffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+
+      let text = "";
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        text += content.items.map((i) => i.str).join(" ");
+      }
+      return text;
+    }
+
+    const buffer = await file.arrayBuffer();
+    const result = await mammoth.extractRawText({ arrayBuffer: buffer });
+    return result.value;
+  };
+
+  const analyzeResume = async () => {
+    if (!file || !genAI) {
+      alert("Missing resume or API key");
+      return;
+    }
+
+    setLoading(true);
+    setScore(null);
+    setSuggestions({});
+
+    try {
+      const resumeText = await extractText(file);
+
+      const model = genAI.getGenerativeModel({
+        model: "gemini-3-flash-preview",
+      });
+
+      const prompt = `
+You are a professional ATS resume evaluator and career advisor.
+
+Analyze the resume below and return:
+
+1. Resume Score out of 100 (number only)
+2. Improvements grouped under EXACTLY these headings:
+   - Content Improvements
+   - Skills Improvements
+   - Experience Improvements
+   - Project Improvements
+   - ATS / Formatting Improvements
+
+Rules:
+- Suggestions MUST be strictly based on this resume
+- Do NOT give generic advice
+- Be concise and professional
+
+Resume:
+"""
+${resumeText}
+"""
+
+Return STRICTLY in this format:
+
+Score: <number>
+
+Content Improvements:
+- ...
+
+Skills Improvements:
+- ...
+
+Experience Improvements:
+- ...
+
+Project Improvements:
+- ...
+
+ATS / Formatting Improvements:
+- ...
+`;
+
+      const result = await model.generateContent(prompt);
+      const text = result.response.text();
+
+      // --- SCORE ---
+      const scoreMatch = text.match(/Score:\s*(\d+)/);
+      setScore(scoreMatch ? Number(scoreMatch[1]) : 0);
+
+      // --- GROUPED IMPROVEMENTS ---
+      const sections = {};
+      let currentSection = "";
+
+      text.split("\n").forEach((line) => {
+        const trimmed = line.trim();
+
+        if (
+          trimmed.endsWith("Improvements:") &&
+          !trimmed.startsWith("-")
+        ) {
+          currentSection = trimmed.replace(":", "");
+          sections[currentSection] = [];
+        } else if (trimmed.startsWith("-") && currentSection) {
+          const point = trimmed.replace("-", "").trim();
+          if (point.length > 0) {
+            sections[currentSection].push(point);
+          }
+        }
+      });
+
+      setSuggestions(sections);
+    } catch (err) {
+      console.error(err);
+      alert("Resume analysis failed");
+    }
+
+    setLoading(false);
+  };
+
+  return (
+    <div className="max-w-3xl mx-auto bg-white p-8 rounded-3xl shadow-lg">
+      <h2 className="text-3xl font-black text-slate-800 mb-6">
+        Deep Resume Analysis
+      </h2>
+
+      <input
+        type="file"
+        accept=".pdf,.docx"
+        onChange={handleFileChange}
+        className="mb-4"
+      />
+
+      <button
+        onClick={analyzeResume}
+        disabled={loading}
+        className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold"
+      >
+        {loading ? "Analyzing..." : "Analyze Resume"}
+      </button>
+
+      {/* SCORE */}
+      {score !== null && (
+        <div className="mt-6">
+          <p className="font-bold">Resume Score: {score}%</p>
+          <div className="w-full bg-slate-200 h-3 rounded-full mt-2">
+            <div
+              className="h-3 bg-green-500 rounded-full"
+              style={{ width: `${score}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* IMPROVEMENTS */}
+      {Object.keys(suggestions).length > 0 && (
+        <div className="mt-8 space-y-6">
+          {Object.entries(suggestions).map(([section, items]) => (
+            <div key={section}>
+              <h4 className="text-lg font-bold text-slate-800 mb-2">
+                {section}
+              </h4>
+              <ul className="list-disc list-inside space-y-1 text-slate-700">
+                {items.map((item, i) => (
+                  <li key={i}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
